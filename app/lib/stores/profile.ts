@@ -1,3 +1,4 @@
+import { accountStorage } from '~/lib/auth/account-context';
 import { atom } from 'nanostores';
 
 interface Profile {
@@ -7,7 +8,7 @@ interface Profile {
 }
 
 // Initialize with stored profile or defaults
-const storedProfile = typeof window !== 'undefined' ? localStorage.getItem('bolt_profile') : null;
+const storedProfile = typeof window !== 'undefined' ? accountStorage.getItem('bolt_profile') : null;
 const initialProfile: Profile = storedProfile
   ? JSON.parse(storedProfile)
   : {
@@ -23,6 +24,6 @@ export const updateProfile = (updates: Partial<Profile>) => {
 
   // Persist to localStorage
   if (typeof window !== 'undefined') {
-    localStorage.setItem('bolt_profile', JSON.stringify(profileStore.get()));
+    accountStorage.setItem('bolt_profile', JSON.stringify(profileStore.get()));
   }
 };

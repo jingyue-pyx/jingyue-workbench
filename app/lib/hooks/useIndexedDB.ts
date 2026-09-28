@@ -13,7 +13,7 @@ export function useIndexedDB() {
       try {
         setIsLoading(true);
 
-        const request = indexedDB.open('boltDB', 1);
+        const request = indexedDB.open(scopedDatabaseName('boltDB'), 1);
 
         request.onupgradeneeded = (event) => {
           const db = (event.target as IDBOpenDBRequest).result;
@@ -56,3 +56,4 @@ export function useIndexedDB() {
 
   return { db, isLoading, error };
 }
+import { scopedDatabaseName } from '~/lib/auth/account-context';

@@ -1,3 +1,4 @@
+import { accountStorage } from '~/lib/auth/account-context';
 import type { WebContainer } from '@webcontainer/api';
 import { WORK_DIR } from './constants';
 
@@ -12,8 +13,8 @@ const watcherState = {
 // Try to load the fallback state from localStorage
 function tryLoadFallbackState(): boolean {
   try {
-    if (typeof localStorage !== 'undefined') {
-      const state = localStorage.getItem('bolt-file-watcher-fallback');
+    if (typeof accountStorage !== 'undefined') {
+      const state = accountStorage.getItem('bolt-file-watcher-fallback');
       return state === 'true';
     }
   } catch {
@@ -25,8 +26,8 @@ function tryLoadFallbackState(): boolean {
 // Save the fallback state to localStorage
 function saveFallbackState(state: boolean) {
   try {
-    if (typeof localStorage !== 'undefined') {
-      localStorage.setItem('bolt-file-watcher-fallback', state ? 'true' : 'false');
+    if (typeof accountStorage !== 'undefined') {
+      accountStorage.setItem('bolt-file-watcher-fallback', state ? 'true' : 'false');
     }
   } catch {
     console.warn('[FileWatcher] Failed to save fallback state to localStorage');

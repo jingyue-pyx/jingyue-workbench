@@ -233,4 +233,27 @@ describe('project persistence lifecycle', () => {
     expect(state.files['/home/project/src/App.jsx'].content).toBe('cloud source');
     expect(state.getMessages).not.toHaveBeenCalled();
   });
+
+  it.each([{}, { src: { type: 'folder' } }])('restores conversation-only projects without a synthetic source artifact (%j)', async (files) => {
+    const conversation = [
+      { id: 'question', role: 'user' as const, content: 'hello' },
+      { id: 'answer', role: 'assistant' as const, content: 'What would you like to build?' },
+    ];
+    state.route = { id: cloudId };
+    state.files = {};
+    state.load.mockResolvedValue(cloud({
+      schemaVersion: 1,
+      title: 'Conversation only',
+      messages: conversation,
+      snapshot: { chatIndex: 'answer', files },
+    }));
+    const { result } = renderHook(() => useChatHistory());
+    await waitFor(() => expect(result.current.ready).toBe(true));
+    expect(result.current.initialMessages).toEqual(conversation);
+    expect(state.writeFile).not.toHaveBeenCalled();
+    await act(async () => {
+      await result.current.storeMessageHistory(result.current.initialMessages);
+    });
+    expect(state.save).toHaveBeenCalledWith(cloudId, expect.objectContaining({ messages: conversation }));
+  });
 });

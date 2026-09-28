@@ -1,10 +1,11 @@
+import { accountStorage } from '~/lib/auth/account-context';
 import { atom } from 'nanostores';
 import type { VercelConnection } from '~/types/vercel';
 import { logStore } from './logs';
 import { toast } from 'react-toastify';
 
 // Initialize with stored connection or defaults
-const storedConnection = typeof window !== 'undefined' ? localStorage.getItem('vercel_connection') : null;
+const storedConnection = typeof window !== 'undefined' ? accountStorage.getItem('vercel_connection') : null;
 const initialConnection: VercelConnection = storedConnection
   ? JSON.parse(storedConnection)
   : {
@@ -24,7 +25,7 @@ export const updateVercelConnection = (updates: Partial<VercelConnection>) => {
 
   // Persist to localStorage
   if (typeof window !== 'undefined') {
-    localStorage.setItem('vercel_connection', JSON.stringify(newState));
+    accountStorage.setItem('vercel_connection', JSON.stringify(newState));
   }
 };
 

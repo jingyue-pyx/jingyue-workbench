@@ -1,3 +1,4 @@
+import { accountStorage } from '~/lib/auth/account-context';
 import { useEffect } from 'react';
 import { useSupabaseConnection } from '~/lib/hooks/useSupabaseConnection';
 import { classNames } from '~/utils/classNames';
@@ -40,7 +41,7 @@ export function SupabaseConnection() {
 
   useEffect(() => {
     if (isConnected && currentChatId) {
-      const savedProjectId = localStorage.getItem(`supabase-project-${currentChatId}`);
+      const savedProjectId = accountStorage.getItem(`supabase-project-${currentChatId}`);
 
       /*
        * If there's no saved project for this chat but there is a global selected project,
@@ -48,7 +49,7 @@ export function SupabaseConnection() {
        */
       if (!savedProjectId && supabaseConn.selectedProjectId) {
         // Save the current global project to this chat
-        localStorage.setItem(`supabase-project-${currentChatId}`, supabaseConn.selectedProjectId);
+        accountStorage.setItem(`supabase-project-${currentChatId}`, supabaseConn.selectedProjectId);
       } else if (savedProjectId && savedProjectId !== supabaseConn.selectedProjectId) {
         selectProject(savedProjectId);
       }
@@ -57,9 +58,9 @@ export function SupabaseConnection() {
 
   useEffect(() => {
     if (currentChatId && supabaseConn.selectedProjectId) {
-      localStorage.setItem(`supabase-project-${currentChatId}`, supabaseConn.selectedProjectId);
+      accountStorage.setItem(`supabase-project-${currentChatId}`, supabaseConn.selectedProjectId);
     } else if (currentChatId && !supabaseConn.selectedProjectId) {
-      localStorage.removeItem(`supabase-project-${currentChatId}`);
+      accountStorage.removeItem(`supabase-project-${currentChatId}`);
     }
   }, [currentChatId, supabaseConn.selectedProjectId]);
 

@@ -36,6 +36,10 @@ await cp(join(root, 'build/client'), join(output, 'client'), {
 await mkdir(join(output, 'licenses'));
 await cp(join(root, 'LICENSE'), join(output, 'licenses/bolt-MIT.txt'));
 await cp(join(dirname(require.resolve('pg/package.json')), 'LICENSE'), join(output, 'licenses/node-postgres-MIT.txt'));
+for (const name of ['passport', 'passport-local', 'passport-strategy', 'pause', 'utils-merge']) {
+  const from = name === 'passport-local' || name === 'passport' ? require : createRequire(require.resolve('passport/package.json'));
+  await cp(join(dirname(from.resolve(`${name}/package.json`)), name === 'pause' ? 'Readme.md' : 'LICENSE'), join(output, `licenses/${name}-MIT.txt`));
+}
 await cp(join(root, 'third-party/onlook'), join(output, 'licenses/onlook'), { recursive: true });
 await writeFile(
   join(output, 'package.json'),
@@ -54,6 +58,7 @@ await writeFile(
 await cp(join(root, 'deployment/README.md'), join(output, 'DEPLOYMENT.md'));
 await cp(join(root, 'deployment/sql'), join(output, 'sql'), { recursive: true });
 await cp(join(root, 'deployment/PROJECTS.md'), join(output, 'PROJECTS.md'));
+await cp(join(root, 'deployment/ACCOUNTS.md'), join(output, 'ACCOUNTS.md'));
 await cp(join(root, 'deployment/persistence.env.example'), join(output, 'persistence.env.example'));
 
 // Allowlist construction never reads local key/configuration files.

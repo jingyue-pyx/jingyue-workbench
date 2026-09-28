@@ -45,7 +45,13 @@ const inlineThemeCode = stripIndents`
   setTutorialKitTheme();
 
   function setTutorialKitTheme() {
-    let theme = localStorage.getItem('bolt_theme');
+    let prefix = '';
+    try {
+      const account = JSON.parse(document.querySelector('meta[name="jingyue-account"]')?.content || 'null');
+      if (account && !account.legacyOwner) prefix = 'jingyue:user:' + account.id + ':';
+    } catch {}
+    let theme;
+    try { theme = localStorage.getItem(prefix + 'bolt_theme'); } catch {}
 
     if (!theme) {
       theme = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';

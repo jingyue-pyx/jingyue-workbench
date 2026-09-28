@@ -1,3 +1,4 @@
+import { accountStorage } from '~/lib/auth/account-context';
 import * as Dialog from '@radix-ui/react-dialog';
 import { useState, useEffect, useCallback } from 'react';
 import { toast } from 'react-toastify';
@@ -136,7 +137,7 @@ export function PushToGitHubDialog({ isOpen, onClose, onPush }: PushToGitHubDial
             const connection = getLocalStorage('github_connection');
 
             if (connection) {
-              localStorage.removeItem('github_connection');
+              accountStorage.removeItem('github_connection');
               setUser(null);
             }
           } else if (response.status === 403 && response.headers.get('x-ratelimit-remaining') === '0') {

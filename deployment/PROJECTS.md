@@ -7,6 +7,10 @@ return HTTP 503 with `error.code=PERSISTENCE_UNAVAILABLE`; model APIs are unchan
 
 ## Server configuration
 
+The current limited public demo uses the account/session mode documented in
+`ACCOUNTS.md`. Verified sessions determine each project's owner. The Basic
+workspace below is the legacy mode, not the current multi-user identity model.
+
 - `WORKBENCH_OWNER_ID`: one stable UUID for this private workspace, independent
   of Basic username/password. Everyone with the shared Basic credentials has
   access to this same workspace. This is not a multi-user login system.
@@ -70,7 +74,8 @@ background wake-up task is installed.
 
 ## API contract, schema version 1
 
-All routes require existing Basic authentication. POST additionally requires
+All routes require authentication: an application session in account mode, or
+Basic credentials in legacy mode. POST additionally requires
 the exact configured Origin and JSON. Cookies cannot set owner or DB destination.
 
 `document` has only `schemaVersion:1`, `title` (nonempty, max 200), `messages`,

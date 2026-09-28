@@ -1,3 +1,4 @@
+import { accountStorage } from '~/lib/auth/account-context';
 import { toast } from 'react-toastify';
 import { useStore } from '@nanostores/react';
 import { netlifyConnection } from '~/lib/stores/netlify';
@@ -137,7 +138,7 @@ export function useNetlifyDeploy() {
       const fileContents = await getAllFiles(finalBuildPath);
 
       // Use chatId instead of artifact.id
-      const existingSiteId = localStorage.getItem(`netlify-site-${currentChatId}`);
+      const existingSiteId = accountStorage.getItem(`netlify-site-${currentChatId}`);
 
       const response = await fetch('/api/netlify-deploy', {
         method: 'POST',
@@ -215,7 +216,7 @@ export function useNetlifyDeploy() {
 
       // Store the site ID if it's a new site
       if (data.site) {
-        localStorage.setItem(`netlify-site-${currentChatId}`, data.site.id);
+        accountStorage.setItem(`netlify-site-${currentChatId}`, data.site.id);
       }
 
       // Notify that deployment completed successfully

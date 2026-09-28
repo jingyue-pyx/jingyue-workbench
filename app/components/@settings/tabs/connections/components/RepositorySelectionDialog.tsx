@@ -1,3 +1,4 @@
+import { accountStorage } from '~/lib/auth/account-context';
 import type { GitHubRepoInfo, GitHubContent, RepositoryStats, GitHubUserResponse } from '~/types/GitHub';
 import { useState, useEffect } from 'react';
 import { toast } from 'react-toastify';
@@ -5,7 +6,7 @@ import * as Dialog from '@radix-ui/react-dialog';
 import { classNames } from '~/utils/classNames';
 import { getLocalStorage } from '~/lib/persistence';
 import { motion, AnimatePresence } from 'framer-motion';
-import Cookies from 'js-cookie';
+import Cookies from '~/lib/auth/account-cookies';
 
 // Import UI components
 import { Input, SearchInput, Badge, FilterChip } from '~/components/ui';
@@ -100,7 +101,7 @@ export function RepositorySelectionDialog({ isOpen, onClose, onSelect }: Reposit
             connected_at: new Date().toISOString(),
           };
 
-          localStorage.setItem('github_connection', JSON.stringify(newConnection));
+          accountStorage.setItem('github_connection', JSON.stringify(newConnection));
 
           // Also save as cookies for API requests
           Cookies.set('githubToken', token);

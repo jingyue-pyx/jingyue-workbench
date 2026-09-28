@@ -51,8 +51,10 @@ docs/instructions/Roadmap.md
 .cursorrules
 *.md
 !JINGYUE.md
+!IMPLEMENTATION_SUMMARY.md
 !deployment/README.md
 !deployment/PROJECTS.md
+!deployment/ACCOUNTS.md
 !third-party/onlook/LICENSE.md
 !third-party/onlook/NOTICE.md
 .qodo

@@ -1,3 +1,4 @@
+import { accountStorage } from '~/lib/auth/account-context';
 import React, { useState, useEffect } from 'react';
 import { toast } from 'react-toastify';
 import { classNames } from '~/utils/classNames';
@@ -202,10 +203,10 @@ export default function NetlifyConnection() {
 
   const handleDisconnect = () => {
     // Clear from localStorage
-    localStorage.removeItem('netlify_connection');
+    accountStorage.removeItem('netlify_connection');
 
     // Remove cookies
-    document.cookie = 'netlifyToken=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;';
+    Cookies.remove('netlifyToken', { path: '/' });
 
     // Update the store
     updateNetlifyConnection({ user: null, token: '' });
@@ -729,3 +730,4 @@ export default function NetlifyConnection() {
     </div>
   );
 }
+import Cookies from '~/lib/auth/account-cookies';

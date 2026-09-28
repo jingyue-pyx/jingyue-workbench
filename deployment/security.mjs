@@ -47,12 +47,29 @@ export function configuration(env) {
     throw new Error('The model endpoint must be an official Alibaba Cloud HTTPS endpoint.');
   }
   if (!env.DASHSCOPE_API_KEY && !localTest) throw new Error('A server-side model key is required.');
+  const authMode = env.JINGYUE_AUTH_MODE || 'basic';
+  if (!['basic', 'accounts'].includes(authMode)) throw new Error('Unknown authentication mode.');
+  const legacyUsername = (env.JINGYUE_LEGACY_ACCOUNT || username).normalize('NFKC').trim().toLowerCase();
+  if (authMode === 'accounts' && !/^[\p{L}\p{N}][\p{L}\p{N}_.-]{2,31}$/u.test(legacyUsername))
+    throw new Error('Set a valid reserved legacy account name.');
+  const positiveLimit = (key, fallback, max) => {
+    const value = Number(env[key] || fallback);
+    if (!Number.isInteger(value) || value < 1 || value > max) throw new Error('Invalid account limit.');
+    return value;
+  };
   return {
     origin: origin.origin,
     localTest,
     host,
     port: Number(env.PORT || 9000),
     authDigest: digest(`${username}:${password}`),
+    authMode,
+    legacyUsername,
+    legacyAccessUser: username,
+    registrationOpen: env.JINGYUE_REGISTRATION_OPEN === '1',
+    maxAccounts: positiveLimit('JINGYUE_MAX_ACCOUNTS', 20, 100),
+    userDailyRequests: positiveLimit('JINGYUE_USER_DAILY_REQUESTS', 20, 100),
+    globalDailyRequests: positiveLimit('JINGYUE_GLOBAL_DAILY_REQUESTS', 100, 500),
     modelEnv: { DASHSCOPE_API_KEY: env.DASHSCOPE_API_KEY || '', DASHSCOPE_BASE_URL: endpoint.href.replace(/\/$/, '') },
   };
 }

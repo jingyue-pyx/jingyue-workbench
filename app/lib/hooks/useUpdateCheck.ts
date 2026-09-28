@@ -1,3 +1,4 @@
+import { accountStorage } from '~/lib/auth/account-context';
 import { useState, useEffect } from 'react';
 import { checkForUpdates, acknowledgeUpdate } from '~/lib/api/updates';
 
@@ -8,7 +9,7 @@ export const useUpdateCheck = () => {
   const [currentVersion, setCurrentVersion] = useState<string>('');
   const [lastAcknowledgedVersion, setLastAcknowledgedVersion] = useState<string | null>(() => {
     try {
-      return localStorage.getItem(LAST_ACKNOWLEDGED_VERSION_KEY);
+      return accountStorage.getItem(LAST_ACKNOWLEDGED_VERSION_KEY);
     } catch {
       return null;
     }
@@ -42,7 +43,7 @@ export const useUpdateCheck = () => {
 
       // Store in localStorage
       try {
-        localStorage.setItem(LAST_ACKNOWLEDGED_VERSION_KEY, version);
+        accountStorage.setItem(LAST_ACKNOWLEDGED_VERSION_KEY, version);
       } catch (error) {
         console.error('Failed to persist acknowledged version:', error);
       }

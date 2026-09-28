@@ -170,7 +170,10 @@ export function useChatHistory({ restore = true }: { restore?: boolean } = {}) {
       const snapshotIndex = document.snapshot
         ? document.messages.findIndex((m) => m.id === document.snapshot!.chatIndex)
         : -1;
-      const useSnapshot = snapshotIndex >= 0 && snapshotIndex < ending && !rewind;
+      // A conversation can be saved before the model has produced any files.
+      // Do not replace that conversation with an empty source-restoration artifact.
+      const hasSnapshotFiles = Object.values(document.snapshot?.files || {}).some((file) => file?.type === 'file');
+      const useSnapshot = hasSnapshotFiles && snapshotIndex >= 0 && snapshotIndex < ending && !rewind;
       archived.current = useSnapshot ? document.messages.slice(0, snapshotIndex + 1) : [];
       let messages = document.messages.slice(useSnapshot ? snapshotIndex + 1 : 0, ending);
       if (useSnapshot) {

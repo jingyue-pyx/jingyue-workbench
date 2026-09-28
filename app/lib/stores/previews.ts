@@ -1,3 +1,4 @@
+import { accountStorage } from '~/lib/auth/account-context';
 import type { WebContainer } from '@webcontainer/api';
 import { atom } from 'nanostores';
 
@@ -60,10 +61,10 @@ export class PreviewsStore {
 
     // Override localStorage setItem to catch all changes
     if (typeof window !== 'undefined') {
-      const originalSetItem = localStorage.setItem;
+      const originalSetItem = accountStorage.setItem;
 
-      localStorage.setItem = (...args) => {
-        originalSetItem.apply(localStorage, args);
+      accountStorage.setItem = (...args) => {
+        originalSetItem.apply(accountStorage, args);
         this._broadcastStorageSync();
       };
     }
@@ -89,8 +90,8 @@ export class PreviewsStore {
     if (typeof window !== 'undefined') {
       Object.entries(storage).forEach(([key, value]) => {
         try {
-          const originalSetItem = Object.getPrototypeOf(localStorage).setItem;
-          originalSetItem.call(localStorage, key, value);
+          const originalSetItem = Object.getPrototypeOf(accountStorage).setItem;
+          originalSetItem.call(accountStorage, key, value);
         } catch (error) {
           console.error('[Preview] Error syncing storage:', error);
         }
@@ -122,11 +123,11 @@ export class PreviewsStore {
     if (typeof window !== 'undefined') {
       const storage: Record<string, string> = {};
 
-      for (let i = 0; i < localStorage.length; i++) {
-        const key = localStorage.key(i);
+      for (let i = 0; i < accountStorage.length; i++) {
+        const key = accountStorage.key(i);
 
         if (key) {
-          storage[key] = localStorage.getItem(key) || '';
+          storage[key] = accountStorage.getItem(key) || '';
         }
       }
 

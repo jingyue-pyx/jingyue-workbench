@@ -1,3 +1,4 @@
+import { accountStorage } from '~/lib/auth/account-context';
 import { motion, type Variants } from 'framer-motion';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { toast } from 'react-toastify';
@@ -116,7 +117,7 @@ export const Menu = () => {
       // Delete chat snapshot from localStorage
       try {
         const snapshotKey = `snapshot:${id}`;
-        localStorage.removeItem(snapshotKey);
+        accountStorage.removeItem(snapshotKey);
         console.log('Removed snapshot for chat:', id);
       } catch (snapshotError) {
         console.error(`Error deleting snapshot for chat ${id}:`, snapshotError);

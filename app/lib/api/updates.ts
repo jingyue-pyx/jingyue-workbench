@@ -1,3 +1,4 @@
+import { accountStorage } from '~/lib/auth/account-context';
 export interface UpdateCheckResult {
   available: boolean;
   version: string;
@@ -101,7 +102,7 @@ export const checkForUpdates = async (): Promise<UpdateCheckResult> => {
 export const acknowledgeUpdate = async (version: string): Promise<void> => {
   // Store the acknowledged version in localStorage
   try {
-    localStorage.setItem('last_acknowledged_update', version);
+    accountStorage.setItem('last_acknowledged_update', version);
   } catch (error) {
     console.error('Failed to store acknowledged version:', error);
   }

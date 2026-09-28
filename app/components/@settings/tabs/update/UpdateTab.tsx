@@ -1,3 +1,4 @@
+import { accountStorage } from '~/lib/auth/account-context';
 import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { useSettings } from '~/lib/hooks/useSettings';
@@ -123,7 +124,7 @@ const UpdateTab = () => {
   const [isChecking, setIsChecking] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [updateSettings, setUpdateSettings] = useState<UpdateSettings>(() => {
-    const stored = localStorage.getItem('update_settings');
+    const stored = accountStorage.getItem('update_settings');
     return stored
       ? JSON.parse(stored)
       : {
@@ -136,7 +137,7 @@ const UpdateTab = () => {
   const [updateProgress, setUpdateProgress] = useState<UpdateProgress | null>(null);
 
   useEffect(() => {
-    localStorage.setItem('update_settings', JSON.stringify(updateSettings));
+    accountStorage.setItem('update_settings', JSON.stringify(updateSettings));
   }, [updateSettings]);
 
   const checkForUpdates = async () => {

@@ -1,4 +1,5 @@
-import Cookies from 'js-cookie';
+import { accountStorage } from '~/lib/auth/account-context';
+import Cookies from '~/lib/auth/account-cookies';
 import { type Message } from 'ai';
 import { getAllChats, deleteChat } from '~/lib/persistence/chats';
 
@@ -287,13 +288,13 @@ export class ImportExportService {
     const localStorageKeysToPreserve: string[] = ['debug_mode']; // Keys to preserve if needed
 
     // Get all localStorage keys
-    const allLocalStorageKeys = Object.keys(localStorage);
+    const allLocalStorageKeys = Object.keys(accountStorage);
 
     // Clear all localStorage items except those to preserve
     allLocalStorageKeys.forEach((key) => {
       if (!localStorageKeysToPreserve.includes(key)) {
         try {
-          localStorage.removeItem(key);
+          accountStorage.removeItem(key);
         } catch (err) {
           console.error(`Error removing localStorage item ${key}:`, err);
         }
@@ -330,10 +331,10 @@ export class ImportExportService {
     }
 
     // 4. Clear any chat snapshots
-    const snapshotKeys = Object.keys(localStorage).filter((key) => key.startsWith('snapshot:'));
+    const snapshotKeys = Object.keys(accountStorage).filter((key) => key.startsWith('snapshot:'));
     snapshotKeys.forEach((key) => {
       try {
-        localStorage.removeItem(key);
+        accountStorage.removeItem(key);
       } catch (err) {
         console.error(`Error removing snapshot ${key}:`, err);
       }
@@ -346,7 +347,7 @@ export class ImportExportService {
    */
   static async deleteAllChats(db: IDBDatabase): Promise<void> {
     // Clear chat history from localStorage
-    localStorage.removeItem('bolt_chat_history');
+    accountStorage.removeItem('bolt_chat_history');
 
     // Clear chats from IndexedDB
     if (!db) {
@@ -587,7 +588,7 @@ export class ImportExportService {
    */
   private static _safeGetItem(key: string): any {
     try {
-      const item = localStorage.getItem(key);
+      const item = accountStorage.getItem(key);
       return item ? JSON.parse(item) : null;
     } catch (err) {
       console.error(`Error getting localStorage item ${key}:`, err);
@@ -603,12 +604,12 @@ export class ImportExportService {
     const result: Record<string, any> = {};
 
     try {
-      for (let i = 0; i < localStorage.length; i++) {
-        const key = localStorage.key(i);
+      for (let i = 0; i < accountStorage.length; i++) {
+        const key = accountStorage.key(i);
 
         if (key) {
           try {
-            const value = localStorage.getItem(key);
+            const value = accountStorage.getItem(key);
             result[key] = value ? JSON.parse(value) : null;
           } catch {
             result[key] = null;
@@ -631,10 +632,10 @@ export class ImportExportService {
     const result: Record<string, any> = {};
 
     // Get GitHub connections from localStorage
-    const localStorageKeys = Object.keys(localStorage).filter((key) => key.startsWith('github_'));
+    const localStorageKeys = Object.keys(accountStorage).filter((key) => key.startsWith('github_'));
     localStorageKeys.forEach((key) => {
       try {
-        const value = localStorage.getItem(key);
+        const value = accountStorage.getItem(key);
         result[key] = value ? JSON.parse(value) : null;
       } catch (err) {
         console.error(`Error getting GitHub connection ${key}:`, err);
@@ -653,10 +654,10 @@ export class ImportExportService {
     const result: Record<string, any> = {};
 
     // Get chat snapshots from localStorage
-    const snapshotKeys = Object.keys(localStorage).filter((key) => key.startsWith('snapshot:'));
+    const snapshotKeys = Object.keys(accountStorage).filter((key) => key.startsWith('snapshot:'));
     snapshotKeys.forEach((key) => {
       try {
-        const value = localStorage.getItem(key);
+        const value = accountStorage.getItem(key);
         result[key] = value ? JSON.parse(value) : null;
       } catch (err) {
         console.error(`Error getting chat snapshot ${key}:`, err);
@@ -674,7 +675,7 @@ export class ImportExportService {
    */
   private static _safeSetItem(key: string, value: any): void {
     try {
-      localStorage.setItem(key, JSON.stringify(value));
+      accountStorage.setItem(key, JSON.stringify(value));
     } catch (err) {
       console.error(`Error setting localStorage item ${key}:`, err);
     }

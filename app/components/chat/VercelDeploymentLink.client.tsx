@@ -1,3 +1,4 @@
+import { accountStorage } from '~/lib/auth/account-context';
 import { useStore } from '@nanostores/react';
 import { vercelConnection } from '~/lib/stores/vercel';
 import { chatId } from '~/lib/persistence/useChatHistory';
@@ -17,7 +18,7 @@ export function VercelDeploymentLink() {
       }
 
       // Check if we have a stored project ID for this chat
-      const projectId = localStorage.getItem(`vercel-project-${currentChatId}`);
+      const projectId = accountStorage.getItem(`vercel-project-${currentChatId}`);
 
       if (!projectId) {
         return;

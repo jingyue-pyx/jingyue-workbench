@@ -1,4 +1,5 @@
 import type { ProjectDocument } from './project-document';
+import { scopedDatabaseName } from '~/lib/auth/account-context';
 
 export type ProjectSyncState = 'cloud' | 'local' | 'conflict' | 'deleted';
 export interface CachedProject {
@@ -25,7 +26,7 @@ let connection: Promise<IDBDatabase> | undefined;
 function database() {
   return (connection ??= new Promise((resolve, reject) => {
     if (typeof indexedDB === 'undefined') return reject(new Error('本机项目存储不可用，请允许浏览器存储。'));
-    const request = indexedDB.open('jingyueProjects', 1);
+    const request = indexedDB.open(scopedDatabaseName('jingyueProjects'), 1);
     request.onupgradeneeded = () => {
       request.result.createObjectStore('projects', { keyPath: 'projectId' });
       request.result.createObjectStore('meta');

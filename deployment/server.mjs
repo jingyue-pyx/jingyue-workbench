@@ -6,6 +6,7 @@ import { configuration } from './security.mjs';
 import { createGateway, failureDetails } from './gateway.mjs';
 import { createModelNetwork } from './network.mjs';
 import { createProjectStore } from './project-store.mjs';
+import { AccountStore } from './accounts.mjs';
 
 // Upstream logs may contain raw SDK errors, prompts, or request headers. Only
 // fixed deployment events are emitted, never raw upstream console arguments.
@@ -29,6 +30,8 @@ try {
   const config = configuration(process.env);
   const network = createModelNetwork(config);
   const projectStore = await createProjectStore(process.env, report);
+  if (config.authMode === 'accounts' && !projectStore) throw new Error('Account storage is required.');
+  const accountStore = config.authMode === 'accounts' ? new AccountStore(projectStore.pool, config, projectStore.ownerId) : null;
   globalThis.fetch = network.fetch;
   const server = await createGateway({
     config,
@@ -37,6 +40,7 @@ try {
     requestScope: network.run,
     report,
     projectStore,
+    accountStore,
   });
   server.listen(config.port, config.host, () => report('private_preview_ready'));
 } catch {

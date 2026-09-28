@@ -1,3 +1,4 @@
+import { accountStorage } from '~/lib/auth/account-context';
 import { useState, useEffect } from 'react';
 import { getDebugStatus, acknowledgeWarning, acknowledgeError, type DebugIssue } from '~/lib/api/debug';
 
@@ -5,7 +6,7 @@ const ACKNOWLEDGED_DEBUG_ISSUES_KEY = 'bolt_acknowledged_debug_issues';
 
 const getAcknowledgedIssues = (): string[] => {
   try {
-    const stored = localStorage.getItem(ACKNOWLEDGED_DEBUG_ISSUES_KEY);
+    const stored = accountStorage.getItem(ACKNOWLEDGED_DEBUG_ISSUES_KEY);
     return stored ? JSON.parse(stored) : [];
   } catch {
     return [];
@@ -14,7 +15,7 @@ const getAcknowledgedIssues = (): string[] => {
 
 const setAcknowledgedIssues = (issueIds: string[]) => {
   try {
-    localStorage.setItem(ACKNOWLEDGED_DEBUG_ISSUES_KEY, JSON.stringify(issueIds));
+    accountStorage.setItem(ACKNOWLEDGED_DEBUG_ISSUES_KEY, JSON.stringify(issueIds));
   } catch (error) {
     console.error('Failed to persist acknowledged debug issues:', error);
   }

@@ -1,10 +1,11 @@
+import { accountStorage } from '~/lib/auth/account-context';
 import { atom } from 'nanostores';
 import type { NetlifyConnection, NetlifyUser } from '~/types/netlify';
 import { logStore } from './logs';
 import { toast } from 'react-toastify';
 
 // Initialize with stored connection or environment variable
-const storedConnection = typeof window !== 'undefined' ? localStorage.getItem('netlify_connection') : null;
+const storedConnection = typeof window !== 'undefined' ? accountStorage.getItem('netlify_connection') : null;
 const envToken = import.meta.env.VITE_NETLIFY_ACCESS_TOKEN;
 
 // If we have an environment token but no stored connection, initialize with the env token
@@ -51,7 +52,7 @@ export async function initializeNetlifyConnection() {
     };
 
     // Store in localStorage for persistence
-    localStorage.setItem('netlify_connection', JSON.stringify(connectionData));
+    accountStorage.setItem('netlify_connection', JSON.stringify(connectionData));
 
     // Update the store
     updateNetlifyConnection(connectionData);
@@ -73,7 +74,7 @@ export const updateNetlifyConnection = (updates: Partial<NetlifyConnection>) => 
 
   // Persist to localStorage
   if (typeof window !== 'undefined') {
-    localStorage.setItem('netlify_connection', JSON.stringify(newState));
+    accountStorage.setItem('netlify_connection', JSON.stringify(newState));
   }
 };
 

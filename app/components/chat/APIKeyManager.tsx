@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { IconButton } from '~/components/ui/IconButton';
 import type { ProviderInfo } from '~/types/model';
-import Cookies from 'js-cookie';
+import Cookies from '~/lib/auth/account-cookies';
 
 interface APIKeyManagerProps {
   provider: ProviderInfo;

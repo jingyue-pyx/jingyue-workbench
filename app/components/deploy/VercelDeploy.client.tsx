@@ -1,3 +1,4 @@
+import { accountStorage } from '~/lib/auth/account-context';
 import { toast } from 'react-toastify';
 import { useStore } from '@nanostores/react';
 import { vercelConnection } from '~/lib/stores/vercel';
@@ -136,7 +137,7 @@ export function useVercelDeploy() {
       const fileContents = await getAllFiles(finalBuildPath);
 
       // Use chatId instead of artifact.id
-      const existingProjectId = localStorage.getItem(`vercel-project-${currentChatId}`);
+      const existingProjectId = accountStorage.getItem(`vercel-project-${currentChatId}`);
 
       const response = await fetch('/api/vercel-deploy', {
         method: 'POST',
@@ -165,7 +166,7 @@ export function useVercelDeploy() {
       }
 
       if (data.project) {
-        localStorage.setItem(`vercel-project-${currentChatId}`, data.project.id);
+        accountStorage.setItem(`vercel-project-${currentChatId}`, data.project.id);
       }
 
       // Notify that deployment completed successfully

@@ -1,3 +1,4 @@
+import { accountStorage } from '~/lib/auth/account-context';
 import { useState, useEffect } from 'react';
 import { checkConnection } from '~/lib/api/connection';
 
@@ -7,7 +8,7 @@ type ConnectionIssueType = 'disconnected' | 'high-latency' | null;
 
 const getAcknowledgedIssue = (): string | null => {
   try {
-    return localStorage.getItem(ACKNOWLEDGED_CONNECTION_ISSUE_KEY);
+    return accountStorage.getItem(ACKNOWLEDGED_CONNECTION_ISSUE_KEY);
   } catch {
     return null;
   }

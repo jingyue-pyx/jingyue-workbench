@@ -128,6 +128,8 @@
     "mime": "^4.0.4",
     "nanostores": "^0.10.3",
     "ollama-ai-provider": "^0.15.2",
+    "passport": "0.7.0",
+    "passport-local": "1.0.0",
     "path-browserify": "^1.0.1",
     "pg": "8.23.0",
     "react": "^18.3.1",

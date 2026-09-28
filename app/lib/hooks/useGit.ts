@@ -3,7 +3,7 @@ import { useCallback, useEffect, useRef, useState, type MutableRefObject } from 
 import { webcontainer as webcontainerPromise } from '~/lib/webcontainer';
 import git, { type GitAuth, type PromiseFsClient } from 'isomorphic-git';
 import http from 'isomorphic-git/http/web';
-import Cookies from 'js-cookie';
+import Cookies from '~/lib/auth/account-cookies';
 import { toast } from 'react-toastify';
 
 const lookupSavedPassword = (url: string) => {

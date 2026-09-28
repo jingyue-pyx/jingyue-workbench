@@ -32,9 +32,13 @@ export default async function handleRequest(
   }
 
   const head = renderHeadToString({ request, remixContext, Head });
+  const account = _loadContext.accountUser;
+  const bootstrap = account
+    ? `<meta name="jingyue-account" content="${JSON.stringify(account).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;')}">`
+    : '';
   const body = frameHtmlStream(
     readable,
-    `<!DOCTYPE html><html lang="en" data-theme="${themeStore.value}"><head>${head}</head><body><div id="root" class="w-full h-full">`,
+    `<!DOCTYPE html><html lang="zh-CN" data-theme="${themeStore.value}"><head>${bootstrap}${head}</head><body><div id="root" class="w-full h-full">`,
     '</div></body></html>',
   );
 

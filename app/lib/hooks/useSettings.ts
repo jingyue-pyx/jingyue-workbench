@@ -18,7 +18,7 @@ import {
   updatePromptId,
 } from '~/lib/stores/settings';
 import { useCallback, useEffect, useState } from 'react';
-import Cookies from 'js-cookie';
+import Cookies from '~/lib/auth/account-cookies';
 import type { IProviderSetting, ProviderInfo, IProviderConfig } from '~/types/model';
 import type { TabWindowConfig, TabVisibilityConfig } from '~/components/@settings/core/types';
 import { logStore } from '~/lib/stores/logs';

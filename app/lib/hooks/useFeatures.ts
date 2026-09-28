@@ -1,3 +1,4 @@
+import { accountStorage } from '~/lib/auth/account-context';
 import { useState, useEffect } from 'react';
 import { getFeatureFlags, markFeatureViewed, type Feature } from '~/lib/api/features';
 
@@ -5,7 +6,7 @@ const VIEWED_FEATURES_KEY = 'bolt_viewed_features';
 
 const getViewedFeatures = (): string[] => {
   try {
-    const stored = localStorage.getItem(VIEWED_FEATURES_KEY);
+    const stored = accountStorage.getItem(VIEWED_FEATURES_KEY);
     return stored ? JSON.parse(stored) : [];
   } catch {
     return [];
@@ -14,7 +15,7 @@ const getViewedFeatures = (): string[] => {
 
 const setViewedFeatures = (featureIds: string[]) => {
   try {
-    localStorage.setItem(VIEWED_FEATURES_KEY, JSON.stringify(featureIds));
+    accountStorage.setItem(VIEWED_FEATURES_KEY, JSON.stringify(featureIds));
   } catch (error) {
     console.error('Failed to persist viewed features:', error);
   }

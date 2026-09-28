@@ -720,8 +720,8 @@ export function useDataOperations({
         showProgress('Validating API keys data', 60);
 
         // Get current API keys from cookies for potential undo
-        const apiKeysStr = document.cookie.split(';').find((row) => row.trim().startsWith('apiKeys='));
-        const currentApiKeys = apiKeysStr ? JSON.parse(decodeURIComponent(apiKeysStr.split('=')[1])) : {};
+        const apiKeysStr = Cookies.get('apiKeys');
+        const currentApiKeys = apiKeysStr ? JSON.parse(apiKeysStr) : {};
         setLastOperation({ type: 'import-api-keys', data: { previous: currentApiKeys } });
 
         // Step 4: Import API keys
@@ -729,7 +729,7 @@ export function useDataOperations({
 
         const newKeys = ImportExportService.importAPIKeys(importedData);
         const apiKeysJson = JSON.stringify(newKeys);
-        document.cookie = `apiKeys=${apiKeysJson}; path=/; max-age=31536000`;
+        Cookies.set('apiKeys', apiKeysJson, { path: '/', expires: 365 });
 
         // Step 5: Complete
         showProgress('Completing import', 100);
@@ -1174,7 +1174,7 @@ export function useDataOperations({
           const previousAPIKeys = lastOperation.data.previous;
           const newKeys = ImportExportService.importAPIKeys(previousAPIKeys);
           const apiKeysJson = JSON.stringify(newKeys);
-          document.cookie = `apiKeys=${apiKeysJson}; path=/; max-age=31536000`;
+          Cookies.set('apiKeys', apiKeysJson, { path: '/', expires: 365 });
 
           // Dismiss progress toast before showing success toast
           toast.dismiss('progress-toast');
@@ -1238,3 +1238,4 @@ export function useDataOperations({
     handleUndo,
   };
 }
+import Cookies from '~/lib/auth/account-cookies';

@@ -1,3 +1,4 @@
+import { accountStorage } from '~/lib/auth/account-context';
 import { atom } from 'nanostores';
 import type { SupabaseUser, SupabaseStats, SupabaseApiKey, SupabaseCredentials } from '~/types/supabase';
 
@@ -27,8 +28,8 @@ export interface SupabaseConnectionState {
 }
 
 // Node 25 exposes a server-side localStorage global; only read browser storage here.
-const savedConnection = typeof window !== 'undefined' ? window.localStorage.getItem('supabase_connection') : null;
-const savedCredentials = typeof window !== 'undefined' ? window.localStorage.getItem('supabaseCredentials') : null;
+const savedConnection = typeof window !== 'undefined' ? accountStorage.getItem('supabase_connection') : null;
+const savedCredentials = typeof window !== 'undefined' ? accountStorage.getItem('supabaseCredentials') : null;
 
 const initialState: SupabaseConnectionState = savedConnection
   ? JSON.parse(savedConnection)
@@ -99,16 +100,16 @@ export function updateSupabaseConnection(connection: Partial<SupabaseConnectionS
    * Always save the connection state to localStorage to persist across chats
    */
   if (connection.user || connection.token || connection.selectedProjectId !== undefined || connection.credentials) {
-    localStorage.setItem('supabase_connection', JSON.stringify(newState));
+    accountStorage.setItem('supabase_connection', JSON.stringify(newState));
 
     if (newState.credentials) {
-      localStorage.setItem('supabaseCredentials', JSON.stringify(newState.credentials));
+      accountStorage.setItem('supabaseCredentials', JSON.stringify(newState.credentials));
     } else {
-      localStorage.removeItem('supabaseCredentials');
+      accountStorage.removeItem('supabaseCredentials');
     }
   } else {
-    localStorage.removeItem('supabase_connection');
-    localStorage.removeItem('supabaseCredentials');
+    accountStorage.removeItem('supabase_connection');
+    accountStorage.removeItem('supabaseCredentials');
   }
 }
 

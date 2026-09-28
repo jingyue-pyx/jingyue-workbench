@@ -1,3 +1,4 @@
+import { accountStorage } from '~/lib/auth/account-context';
 import { useEffect, useState } from 'react';
 import { toast } from 'react-toastify';
 import { useStore } from '@nanostores/react';
@@ -20,8 +21,8 @@ export function useSupabaseConnection() {
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
 
   useEffect(() => {
-    const savedConnection = localStorage.getItem('supabase_connection');
-    const savedCredentials = localStorage.getItem('supabaseCredentials');
+    const savedConnection = accountStorage.getItem('supabase_connection');
+    const savedCredentials = accountStorage.getItem('supabaseCredentials');
 
     if (savedConnection) {
       const parsed = JSON.parse(savedConnection);

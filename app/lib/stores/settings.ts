@@ -1,3 +1,4 @@
+import { accountStorage } from '~/lib/auth/account-context';
 import { atom, map } from 'nanostores';
 import { PROVIDER_LIST } from '~/utils/constants';
 import type { IProviderConfig } from '~/types/model';
@@ -8,7 +9,7 @@ import type {
   DevTabConfig,
 } from '~/components/@settings/core/types';
 import { DEFAULT_TAB_CONFIG } from '~/components/@settings/core/constants';
-import Cookies from 'js-cookie';
+import Cookies from '~/lib/auth/account-cookies';
 import { toggleTheme } from './theme';
 import { create } from 'zustand';
 
@@ -79,7 +80,7 @@ const getInitialProviderSettings = (): ProviderSetting => {
 
   // Only try to load from localStorage in the browser
   if (isBrowser) {
-    const savedSettings = localStorage.getItem(PROVIDER_SETTINGS_KEY);
+    const savedSettings = accountStorage.getItem(PROVIDER_SETTINGS_KEY);
 
     if (savedSettings) {
       try {
@@ -118,7 +119,7 @@ export const updateProviderSettings = (provider: string, settings: ProviderSetti
 
   // Save to localStorage
   const allSettings = providersStore.get();
-  localStorage.setItem(PROVIDER_SETTINGS_KEY, JSON.stringify(allSettings));
+  accountStorage.setItem(PROVIDER_SETTINGS_KEY, JSON.stringify(allSettings));
 };
 
 export const isDebugMode = atom(false);
@@ -140,7 +141,7 @@ const getInitialSettings = () => {
       return defaultValue;
     }
 
-    const stored = localStorage.getItem(key);
+    const stored = accountStorage.getItem(key);
 
     if (stored === null) {
       return defaultValue;
@@ -158,7 +159,7 @@ const getInitialSettings = () => {
     autoSelectTemplate: getStoredBoolean(SETTINGS_KEYS.AUTO_SELECT_TEMPLATE, true),
     contextOptimization: getStoredBoolean(SETTINGS_KEYS.CONTEXT_OPTIMIZATION, true),
     eventLogs: getStoredBoolean(SETTINGS_KEYS.EVENT_LOGS, true),
-    promptId: isBrowser ? localStorage.getItem(SETTINGS_KEYS.PROMPT_ID) || 'default' : 'default',
+    promptId: isBrowser ? accountStorage.getItem(SETTINGS_KEYS.PROMPT_ID) || 'default' : 'default',
     developerMode: getStoredBoolean(SETTINGS_KEYS.DEVELOPER_MODE, false),
   };
 };
@@ -175,27 +176,27 @@ export const promptStore = atom<string>(initialSettings.promptId);
 // Helper functions to update settings with persistence
 export const updateLatestBranch = (enabled: boolean) => {
   latestBranchStore.set(enabled);
-  localStorage.setItem(SETTINGS_KEYS.LATEST_BRANCH, JSON.stringify(enabled));
+  accountStorage.setItem(SETTINGS_KEYS.LATEST_BRANCH, JSON.stringify(enabled));
 };
 
 export const updateAutoSelectTemplate = (enabled: boolean) => {
   autoSelectStarterTemplate.set(enabled);
-  localStorage.setItem(SETTINGS_KEYS.AUTO_SELECT_TEMPLATE, JSON.stringify(enabled));
+  accountStorage.setItem(SETTINGS_KEYS.AUTO_SELECT_TEMPLATE, JSON.stringify(enabled));
 };
 
 export const updateContextOptimization = (enabled: boolean) => {
   enableContextOptimizationStore.set(enabled);
-  localStorage.setItem(SETTINGS_KEYS.CONTEXT_OPTIMIZATION, JSON.stringify(enabled));
+  accountStorage.setItem(SETTINGS_KEYS.CONTEXT_OPTIMIZATION, JSON.stringify(enabled));
 };
 
 export const updateEventLogs = (enabled: boolean) => {
   isEventLogsEnabled.set(enabled);
-  localStorage.setItem(SETTINGS_KEYS.EVENT_LOGS, JSON.stringify(enabled));
+  accountStorage.setItem(SETTINGS_KEYS.EVENT_LOGS, JSON.stringify(enabled));
 };
 
 export const updatePromptId = (id: string) => {
   promptStore.set(id);
-  localStorage.setItem(SETTINGS_KEYS.PROMPT_ID, id);
+  accountStorage.setItem(SETTINGS_KEYS.PROMPT_ID, id);
 };
 
 // Initialize tab configuration from localStorage or defaults
@@ -210,7 +211,7 @@ const getInitialTabConfiguration = (): TabWindowConfig => {
   }
 
   try {
-    const saved = localStorage.getItem('bolt_tab_configuration');
+    const saved = accountStorage.getItem('bolt_tab_configuration');
 
     if (!saved) {
       return defaultConfig;
@@ -279,7 +280,7 @@ export const resetTabConfiguration = () => {
   };
 
   tabConfigurationStore.set(defaultConfig);
-  localStorage.setItem('bolt_tab_configuration', JSON.stringify(defaultConfig));
+  accountStorage.setItem('bolt_tab_configuration', JSON.stringify(defaultConfig));
 };
 
 // Developer mode store with persistence
@@ -289,7 +290,7 @@ export const setDeveloperMode = (value: boolean) => {
   developerModeStore.set(value);
 
   if (isBrowser) {
-    localStorage.setItem(SETTINGS_KEYS.DEVELOPER_MODE, JSON.stringify(value));
+    accountStorage.setItem(SETTINGS_KEYS.DEVELOPER_MODE, JSON.stringify(value));
   }
 };
 

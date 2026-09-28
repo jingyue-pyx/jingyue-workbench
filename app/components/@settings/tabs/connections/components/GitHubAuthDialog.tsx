@@ -1,8 +1,9 @@
+import { accountStorage } from '~/lib/auth/account-context';
 import React, { useState } from 'react';
 import * as Dialog from '@radix-ui/react-dialog';
 import { motion } from 'framer-motion';
 import { toast } from 'react-toastify';
-import Cookies from 'js-cookie';
+import Cookies from '~/lib/auth/account-cookies';
 import type { GitHubUserResponse } from '~/types/GitHub';
 
 interface GitHubAuthDialogProps {
@@ -47,7 +48,7 @@ export function GitHubAuthDialog({ isOpen, onClose }: GitHubAuthDialogProps) {
           connected_at: new Date().toISOString(),
         };
 
-        localStorage.setItem('github_connection', JSON.stringify(connectionData));
+        accountStorage.setItem('github_connection', JSON.stringify(connectionData));
 
         // Set cookies for API requests
         Cookies.set('githubToken', token);

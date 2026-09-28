@@ -4,6 +4,7 @@ import { chatStore } from '~/lib/stores/chat';
 import { classNames } from '~/utils/classNames';
 import { HeaderActionButtons } from './HeaderActionButtons.client';
 import { ChatDescription } from '~/lib/persistence/ChatDescription.client';
+import { currentAccount } from '~/lib/auth/account-context';
 
 export function Header() {
   const chat = useStore(chatStore);
@@ -37,6 +38,19 @@ export function Header() {
           </ClientOnly>
         </>
       )}
+      <ClientOnly>
+        {() =>
+          currentAccount && (
+            <a
+              href="/account"
+              className="ml-auto px-3 py-2 rounded-lg border border-bolt-elements-borderColor text-sm text-bolt-elements-textPrimary"
+              title="修改显示名或退出登录"
+            >
+              {currentAccount.displayName} · 账号
+            </a>
+          )
+        }
+      </ClientOnly>
     </header>
   );
 }

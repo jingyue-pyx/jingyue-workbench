@@ -1,4 +1,5 @@
 import { atom } from 'nanostores';
+import { currentAccount } from '~/lib/auth/account-context';
 import { projectCache, type CachedProject, type ProjectCache } from './project-cache';
 import {
   excludedProjectPath,
@@ -35,7 +36,7 @@ export class ProjectRepository {
     const response = await this.fetcher(url, {
       method: body ? 'POST' : 'GET',
       credentials: 'same-origin',
-      headers: body ? { 'Content-Type': 'application/json' } : {},
+      headers: { ...(body ? { 'Content-Type': 'application/json' } : {}), ...(currentAccount ? { 'X-Jingyue-User': currentAccount.id } : {}) },
       ...(body ? { body: JSON.stringify(body) } : {}),
       signal: AbortSignal.timeout(20000),
     });

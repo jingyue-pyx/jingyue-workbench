@@ -7,6 +7,8 @@ import { pipeline } from 'node:stream/promises';
 import { authenticated, safePath, apiAllowed, safeModelRequest, modelCatalog } from './security.mjs';
 import { projectRoute } from './project-protocol.mjs';
 import { handleProjectApi } from './project-api.mjs';
+import { AccountError } from './accounts.mjs';
+import { accountRequest } from './account-api.mjs';
 
 // Never emit messages, stacks, URLs or arbitrary error properties: upstream
 // failures can contain prompts, credentials and headers. These finite labels
@@ -41,6 +43,7 @@ export async function createGateway({
   requestScope = (_signal, operation) => operation(),
   timeoutMs = 285000,
   projectStore = null,
+  accountStore = null,
 }) {
   const clientRoot = await realpath(clientDirectory);
   const maxBody = 4 * 1024 * 1024;
@@ -98,8 +101,14 @@ export async function createGateway({
       const pathname = safePath(url.pathname);
       if (!pathname) return send(400, { error: 'Invalid path' });
       if (pathname === '/healthz' && req.method === 'GET') return send(200, { status: 'ok' });
+      let accountUser = null;
+      if (config.authMode === 'accounts') {
+        const result = await accountRequest({ req, res, pathname, config, store: accountStore, headers, send });
+        if (result.handled) return;
+        accountUser = result.user;
+      }
       if (Date.now() - authWindow.at > 60000) authWindow = { at: Date.now(), count: 0 };
-      if (!authenticated(req.headers.authorization, config)) {
+      if (!accountUser && !authenticated(req.headers.authorization, config)) {
         authWindow.count++;
         if (authWindow.count > 120) return send(429, { error: 'Retry later' }, { 'Retry-After': '60' });
         return send(
@@ -133,7 +142,8 @@ export async function createGateway({
         projectWindow.count++;
         activeProjects++;
         try {
-          return await handleProjectApi({ req, route: project, url, store: projectStore, send, report });
+          const store = accountUser ? projectStore?.forOwner(accountUser.id) : projectStore;
+          return await handleProjectApi({ req, route: project, url, store, send, report });
         } finally {
           activeProjects--;
         }
@@ -170,6 +180,7 @@ export async function createGateway({
         activeCalls++;
         counted = true;
         modelWindow.count++;
+        if (accountUser) await accountStore.allowModel(accountUser);
         body = JSON.stringify(data);
       }
       if (!isApi && (req.method === 'GET' || req.method === 'HEAD')) {
@@ -199,7 +210,7 @@ export async function createGateway({
       });
       timer = setTimeout(() => controller.abort(), timeoutMs);
       const response = await requestScope(controller.signal, () =>
-        handler(request, { cloudflare: { env: config.modelEnv } }),
+        handler(request, { cloudflare: { env: config.modelEnv }, accountUser }),
       );
       const responseHeaders = Object.fromEntries(response.headers);
       // Node treats names case-insensitively but object spread does not. Remove
@@ -214,6 +225,7 @@ export async function createGateway({
       if (req.method === 'HEAD' || !response.body) return res.end();
       await pipeline(Readable.fromWeb(response.body), res);
     } catch (error) {
+      if (error instanceof AccountError && !res.headersSent) return send(error.status, { error: { code: error.code, message: error.message } });
       report('request_failed', error);
       if (!res.headersSent) send(500, { error: 'Request failed; please retry' });
       else res.destroy();

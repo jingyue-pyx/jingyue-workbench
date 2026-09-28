@@ -87,6 +87,10 @@ export class PostgresProjectStore {
     this.pool = pool;
     this.ownerId = ownerId;
   }
+  forOwner(ownerId) {
+    // Never mutate a shared store's owner when requests run concurrently.
+    return new PostgresProjectStore(this.pool, ownerId);
+  }
   async list({ limit = 20, cursor, deleted = false }) {
     const params = [this.ownerId, deleted, limit + 1];
     let condition = '';

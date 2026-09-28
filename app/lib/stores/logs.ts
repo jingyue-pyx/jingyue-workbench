@@ -1,5 +1,6 @@
+import { accountStorage } from '~/lib/auth/account-context';
 import { atom, map } from 'nanostores';
-import Cookies from 'js-cookie';
+import Cookies from '~/lib/auth/account-cookies';
 import { createScopedLogger } from '~/utils/logger';
 
 const logger = createScopedLogger('LogStore');
@@ -84,7 +85,7 @@ class LogStore {
       return;
     }
 
-    const savedReadLogs = localStorage.getItem('bolt_read_logs');
+    const savedReadLogs = accountStorage.getItem('bolt_read_logs');
 
     if (savedReadLogs) {
       try {
@@ -106,7 +107,7 @@ class LogStore {
       return;
     }
 
-    localStorage.setItem('bolt_read_logs', JSON.stringify(Array.from(this._readLogs)));
+    accountStorage.setItem('bolt_read_logs', JSON.stringify(Array.from(this._readLogs)));
   }
 
   private _generateId(): string {

@@ -1,3 +1,4 @@
+import { accountStorage } from '~/lib/auth/account-context';
 import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { toast } from 'react-toastify';
@@ -23,7 +24,7 @@ const getModifierSymbol = (modifier: string): string => {
 export default function SettingsTab() {
   const [currentTimezone, setCurrentTimezone] = useState('');
   const [settings, setSettings] = useState<UserProfile>(() => {
-    const saved = localStorage.getItem('bolt_user_profile');
+    const saved = accountStorage.getItem('bolt_user_profile');
     return saved
       ? JSON.parse(saved)
       : {
@@ -41,7 +42,7 @@ export default function SettingsTab() {
   useEffect(() => {
     try {
       // Get existing profile data
-      const existingProfile = JSON.parse(localStorage.getItem('bolt_user_profile') || '{}');
+      const existingProfile = JSON.parse(accountStorage.getItem('bolt_user_profile') || '{}');
 
       // Merge with new settings
       const updatedProfile = {
@@ -51,7 +52,7 @@ export default function SettingsTab() {
         timezone: settings.timezone,
       };
 
-      localStorage.setItem('bolt_user_profile', JSON.stringify(updatedProfile));
+      accountStorage.setItem('bolt_user_profile', JSON.stringify(updatedProfile));
       toast.success('Settings updated');
     } catch (error) {
       console.error('Error saving settings:', error);
@@ -119,12 +120,12 @@ export default function SettingsTab() {
                 setSettings((prev) => ({ ...prev, notifications: checked }));
 
                 // Update localStorage immediately
-                const existingProfile = JSON.parse(localStorage.getItem('bolt_user_profile') || '{}');
+                const existingProfile = JSON.parse(accountStorage.getItem('bolt_user_profile') || '{}');
                 const updatedProfile = {
                   ...existingProfile,
                   notifications: checked,
                 };
-                localStorage.setItem('bolt_user_profile', JSON.stringify(updatedProfile));
+                accountStorage.setItem('bolt_user_profile', JSON.stringify(updatedProfile));
 
                 // Dispatch storage event for other components
                 window.dispatchEvent(

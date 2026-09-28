@@ -1,3 +1,4 @@
+import { accountStorage } from '~/lib/auth/account-context';
 import React, { useState } from 'react';
 import { toast } from 'react-toastify';
 import { Button } from '~/components/ui/Button';
@@ -36,10 +37,10 @@ export default function ConnectionDiagnostics() {
 
       // Check browser-side storage
       const localStorageChecks = {
-        githubConnection: localStorage.getItem('github_connection'),
-        netlifyConnection: localStorage.getItem('netlify_connection'),
-        vercelConnection: localStorage.getItem('vercel_connection'),
-        supabaseConnection: localStorage.getItem('supabase_connection'),
+        githubConnection: accountStorage.getItem('github_connection'),
+        netlifyConnection: accountStorage.getItem('netlify_connection'),
+        vercelConnection: accountStorage.getItem('vercel_connection'),
+        supabaseConnection: accountStorage.getItem('supabase_connection'),
       };
 
       // Get diagnostic data from server
@@ -191,10 +192,10 @@ export default function ConnectionDiagnostics() {
   // Helper to reset GitHub connection
   const resetGitHubConnection = () => {
     try {
-      localStorage.removeItem('github_connection');
-      document.cookie = 'githubToken=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;';
-      document.cookie = 'githubUsername=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;';
-      document.cookie = 'git:github.com=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;';
+      accountStorage.removeItem('github_connection');
+      Cookies.remove('githubToken', { path: '/' });
+      Cookies.remove('githubUsername', { path: '/' });
+      Cookies.remove('git:github.com', { path: '/' });
       toast.success('GitHub connection data cleared. Please refresh the page and reconnect.');
       setDiagnosticResults(null);
     } catch (error) {
@@ -206,8 +207,8 @@ export default function ConnectionDiagnostics() {
   // Helper to reset Netlify connection
   const resetNetlifyConnection = () => {
     try {
-      localStorage.removeItem('netlify_connection');
-      document.cookie = 'netlifyToken=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;';
+      accountStorage.removeItem('netlify_connection');
+      Cookies.remove('netlifyToken', { path: '/' });
       toast.success('Netlify connection data cleared. Please refresh the page and reconnect.');
       setDiagnosticResults(null);
     } catch (error) {
@@ -219,7 +220,7 @@ export default function ConnectionDiagnostics() {
   // Helper to reset Vercel connection
   const resetVercelConnection = () => {
     try {
-      localStorage.removeItem('vercel_connection');
+      accountStorage.removeItem('vercel_connection');
       toast.success('Vercel connection data cleared. Please refresh the page and reconnect.');
       setDiagnosticResults(null);
     } catch (error) {
@@ -231,7 +232,7 @@ export default function ConnectionDiagnostics() {
   // Helper to reset Supabase connection
   const resetSupabaseConnection = () => {
     try {
-      localStorage.removeItem('supabase_connection');
+      accountStorage.removeItem('supabase_connection');
       toast.success('Supabase connection data cleared. Please refresh the page and reconnect.');
       setDiagnosticResults(null);
     } catch (error) {
@@ -593,3 +594,4 @@ export default function ConnectionDiagnostics() {
     </div>
   );
 }
+import Cookies from '~/lib/auth/account-cookies';
