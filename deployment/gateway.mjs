@@ -9,6 +9,8 @@ import { projectRoute } from './project-protocol.mjs';
 import { handleProjectApi } from './project-api.mjs';
 import { AccountError } from './accounts.mjs';
 import { accountRequest } from './account-api.mjs';
+import { runtimeEventName } from './runtime-events.mjs';
+import { demoDataRoute, handleDemoDataApi } from './demo-data.mjs';
 
 // Never emit messages, stacks, URLs or arbitrary error properties: upstream
 // failures can contain prompts, credentials and headers. These finite labels
@@ -44,6 +46,7 @@ export async function createGateway({
   timeoutMs = 285000,
   projectStore = null,
   accountStore = null,
+  demoDataStore = null,
 }) {
   const clientRoot = await realpath(clientDirectory);
   const maxBody = 4 * 1024 * 1024;
@@ -52,6 +55,9 @@ export async function createGateway({
   let authWindow = { at: Date.now(), count: 0 };
   let projectWindow = { at: Date.now(), count: 0 };
   let activeProjects = 0;
+  let runtimeWindow = { at: Date.now(), count: 0 };
+  let demoWindow = { at: Date.now(), count: 0 };
+  let activeDemo = 0;
 
   const headers = {
     'Cross-Origin-Embedder-Policy': 'require-corp',
@@ -130,6 +136,40 @@ export async function createGateway({
           return send(403, { error: 'Same-origin requests required' });
         if (!req.headers['content-type']?.startsWith('application/json')) return send(415, { error: 'JSON required' });
       }
+      if (pathname === '/api/runtime-events') {
+        if (req.method !== 'POST') return send(405, { error: 'Method not allowed' });
+        if (Date.now() - runtimeWindow.at > 60000) runtimeWindow = { at: Date.now(), count: 0 };
+        if (++runtimeWindow.count > 30) return send(429, { error: 'Retry later' });
+        if (Number(req.headers['content-length'] || 0) > 1024) return send(413, { error: 'Event too large' });
+        let size = 0;
+        const chunks = [];
+        for await (const chunk of req) {
+          size += chunk.length;
+          if (size > 1024) return send(413, { error: 'Event too large' });
+          chunks.push(chunk);
+        }
+        let data;
+        try {
+          data = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+        } catch {
+          return send(400, { error: 'Invalid event' });
+        }
+        const event = runtimeEventName(data);
+        if (!event) return send(400, { error: 'Invalid event' });
+        report(event);
+        return send(200, { accepted: true });
+      }
+      const demo = demoDataRoute(pathname);
+      if (demo) {
+        if (Date.now() - demoWindow.at > 60000) demoWindow = { at: Date.now(), count: 0 };
+        if (activeDemo >= 4 || demoWindow.count++ >= 120)
+          return send(429, { error: { code: 'DATA_RATE_LIMIT', message: '保存请求较多，请稍后重试。' } }, { 'Retry-After': '5' });
+        activeDemo++;
+        try {
+          return await handleDemoDataApi({ req, route: demo, store: demoDataStore, projects: projectStore,
+            user: accountUser, send, signal: controller.signal, report });
+        } finally { activeDemo--; }
+      }
       const project = projectRoute(pathname);
       if (project) {
         if (Date.now() - projectWindow.at > 60000) projectWindow = { at: Date.now(), count: 0 };
@@ -174,6 +214,12 @@ export async function createGateway({
         }
         if (!safeModelRequest(data, pathname))
           return send(400, { error: 'Only the configured Bailian models are available' });
+        if (demoDataStore && accountUser && data.managedProjectId === demoDataStore.projectId) {
+          try {
+            const owned = await projectStore.forOwner(accountUser.id).get(demoDataStore.projectId);
+            if (!owned.deletedAt) data.managedDemoStorage = true;
+          } catch { /* Missing, foreign or unavailable projects must not claim cloud storage. */ }
+        }
         if (Date.now() - modelWindow.at > 60000) modelWindow = { at: Date.now(), count: 0 };
         if (activeCalls >= 2 || modelWindow.count >= 10)
           return send(429, { error: 'Private preview model request limit reached' }, { 'Retry-After': '60' });
@@ -225,7 +271,8 @@ export async function createGateway({
       if (req.method === 'HEAD' || !response.body) return res.end();
       await pipeline(Readable.fromWeb(response.body), res);
     } catch (error) {
-      if (error instanceof AccountError && !res.headersSent) return send(error.status, { error: { code: error.code, message: error.message } });
+      if (error instanceof AccountError && !res.headersSent)
+        return send(error.status, { error: { code: error.code, message: error.message } });
       report('request_failed', error);
       if (!res.headersSent) send(500, { error: 'Request failed; please retry' });
       else res.destroy();

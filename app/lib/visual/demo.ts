@@ -1,7 +1,9 @@
 import type { Message } from 'ai';
 
-// A real runnable React fixture, imported via Bolt's normal file/action pipeline.
-// It is intentionally labeled as a fixture, not as a model-generated result.
+/*
+ * A real runnable React fixture, imported via Bolt's normal file/action pipeline.
+ * It is intentionally labeled as a fixture, not as a model-generated result.
+ */
 export function visualDemoMessages(): Message[] {
   const files: Record<string, string> = {
     'package.json': JSON.stringify(

@@ -36,7 +36,10 @@ beforeEach(() => {
     },
     all: async () => structuredClone([...data.values()]),
     meta: async (key, value) => {
-      if (value !== undefined) meta.set(key, value);
+      if (value !== undefined) {
+        meta.set(key, value);
+      }
+
       return meta.get(key);
     },
   };
@@ -53,8 +56,10 @@ describe('cloud project repository', () => {
           release = resolve;
         }),
     );
+
     const pending = repository.create(doc());
     await vi.waitFor(() => expect(fetcher).toHaveBeenCalledOnce());
+
     const body = JSON.parse(fetcher.mock.calls[0][1].body);
     expect(data.get(body.projectId)?.state).toBe('local');
     expect(body.document.snapshot.files['src/App.tsx'].content).toBe('鲸月项目');
@@ -64,9 +69,11 @@ describe('cloud project repository', () => {
   });
   it('preserves complete drafts on 503 and replays the identical create request ID', async () => {
     fetcher.mockResolvedValueOnce(response({ error: { code: 'DATABASE_UNAVAILABLE' } }, 503));
+
     const local = await repository.create(doc());
     expect(local.state).toBe('local');
     expect(local.document.snapshot?.files['/home/project/src/App.tsx']).toBeDefined();
+
     const first = JSON.parse(fetcher.mock.calls[0][1].body);
     fetcher.mockResolvedValueOnce(response(ack(local.projectId)));
     expect((await repository.save(local.projectId, doc())).state).toBe('cloud');
@@ -74,10 +81,12 @@ describe('cloud project repository', () => {
   });
   it('replays uncertain data before checkpointing a newer offline draft', async () => {
     fetcher.mockRejectedValueOnce(new TypeError('offline'));
+
     const local = await repository.create(doc('old'));
     fetcher
       .mockResolvedValueOnce(response(ack(local.projectId)))
       .mockResolvedValueOnce(response(ack(local.projectId, 2)));
+
     const saved = await repository.save(local.projectId, doc('new'));
     const requests = fetcher.mock.calls.map((call) => JSON.parse(call[1].body));
     expect(requests[1]).toEqual(requests[0]);
@@ -96,11 +105,13 @@ describe('cloud project repository', () => {
       state: 'cloud',
     });
     fetcher.mockResolvedValueOnce(response({ error: { code: 'REVISION_CONFLICT', currentRevision: 3 } }, 409));
+
     const conflict = await repository.save(id, doc('local edit'));
     expect(conflict.state).toBe('conflict');
     await repository.save(id, doc('another edit'));
     expect(fetcher).toHaveBeenCalledOnce();
     fetcher.mockImplementation(async (_url, init) => response(ack(JSON.parse(init.body).projectId)));
+
     const copy = await repository.copy(id);
     expect(copy.projectId).not.toBe(id);
     expect(copy.document.snapshot?.files['/home/project/src/App.tsx']?.type).toBe('file');
@@ -139,6 +150,7 @@ describe('cloud project repository', () => {
 
   it('does not claim a possibly-created cloud project was deleted when its first ack was lost', async () => {
     fetcher.mockRejectedValueOnce(new TypeError('offline'));
+
     const project = await repository.create(doc());
     await expect(repository.remove(project.projectId)).rejects.toThrow('尚未确认');
     expect(data.get(project.projectId)?.deletedAt).toBeNull();
@@ -154,6 +166,7 @@ describe('cloud project repository', () => {
       deletedAt: null,
       state: 'cloud',
     });
+
     let finish!: (value: Response) => void;
     fetcher
       .mockImplementationOnce(
@@ -163,11 +176,14 @@ describe('cloud project repository', () => {
           }),
       )
       .mockResolvedValueOnce(response(ack(id, 3)));
+
     const save = repository.save(id, doc('new source'));
     await vi.waitFor(() => expect(fetcher).toHaveBeenCalledOnce());
+
     const rename = repository.rename(id, '新名称');
     finish(response(ack(id, 2)));
     await save;
+
     const renamed = await rename;
     expect(renamed.document.title).toBe('新名称');
     expect(renamed.document.snapshot?.files['/home/project/src/App.tsx']).toEqual({
@@ -210,6 +226,7 @@ describe('cloud project repository', () => {
       state: 'cloud',
     });
     fetcher.mockResolvedValueOnce(response({ ...ack(), createdAt: '', document: doc('remote') }));
+
     const loaded = await repository.load(id);
     expect(loaded.document.snapshot?.files['.env.local']).toBeDefined();
     expect(runtimeFiles(loaded.document.snapshot!.files)['/home/project/.env.local']).toBeDefined();
@@ -235,6 +252,7 @@ describe('cloud project repository', () => {
   it('does not make any legacy migration request without explicit create and persists its mapping', async () => {
     expect(fetcher).not.toHaveBeenCalled();
     fetcher.mockResolvedValueOnce(response({ error: { code: 'DATABASE_UNAVAILABLE' } }, 503));
+
     const migration = { sourceId: await repository.migrationSource(), legacyId: '42' };
     const first = await repository.create(doc(), migration);
     const second = await repository.create(doc(), migration);
@@ -262,6 +280,7 @@ describe('cloud project repository', () => {
   it('keeps an oversized draft without sending it', async () => {
     const large = doc();
     large.messages[0].content = 'x'.repeat(4 * 1024 * 1024);
+
     const result = await repository.create(large);
     expect(result.state).toBe('local');
     expect(result.error).toContain('4 MiB');

@@ -110,6 +110,7 @@ export const Menu = () => {
         await projects.remove(id);
         return;
       }
+
       if (!db) {
         throw new Error('Database not available');
       }
@@ -453,8 +454,10 @@ export const Menu = () => {
             <button
               className="p-2 text-xs"
               onClick={async () => {
-                if (!window.confirm('只清理已经同步的本机云项目缓存，不删除云端项目、旧项目或未同步草稿。继续？'))
+                if (!window.confirm('只清理已经同步的本机云项目缓存，不删除云端项目、旧项目或未同步草稿。继续？')) {
                   return;
+                }
+
                 try {
                   await clearSyncedProjectCache();
                   toast.success('已同步缓存已清理，云端项目未删除。');
@@ -485,7 +488,11 @@ export const Menu = () => {
                             onClick={async () => {
                               try {
                                 const cached = await projects.local(item.id);
-                                if (!cached || cached.revision > 0) await projects.load(item.id, true);
+
+                                if (!cached || cached.revision > 0) {
+                                  await projects.load(item.id, true);
+                                }
+
                                 await projects.remove(item.id, true);
                                 loadEntries();
                               } catch (error) {

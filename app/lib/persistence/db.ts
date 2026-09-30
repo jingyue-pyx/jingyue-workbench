@@ -108,8 +108,13 @@ export async function setLegacyProject(
   return new Promise((resolve, reject) => {
     const tx = db.transaction(['chats', 'snapshots'], 'readwrite');
     tx.objectStore('chats').put(chat);
-    if (snapshot) tx.objectStore('snapshots').put({ snapshot, chatId: chat.id });
-    else tx.objectStore('snapshots').delete(chat.id);
+
+    if (snapshot) {
+      tx.objectStore('snapshots').put({ snapshot, chatId: chat.id });
+    } else {
+      tx.objectStore('snapshots').delete(chat.id);
+    }
+
     tx.oncomplete = () => resolve();
     tx.onabort = tx.onerror = () => reject(tx.error || new Error('本机项目保存失败。'));
   });
@@ -278,6 +283,7 @@ export async function duplicateChat(db: IDBDatabase, id: string): Promise<string
     },
     (await getSnapshot(db, chat.id)) || null,
   );
+
   return newId;
 }
 

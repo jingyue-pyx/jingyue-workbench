@@ -1,6 +1,8 @@
-// Adapted from onlook-dev/onlook packages/parser/src/code-edit/text.ts.
-// Copyright Onlook contributors. Apache-2.0; see third-party/onlook/LICENSE.md.
-// Change: imports use Babel standalone directly; reject nonliteral text at the caller.
+/*
+ * Adapted from onlook-dev/onlook packages/parser/src/code-edit/text.ts.
+ * Copyright Onlook contributors. Apache-2.0; see third-party/onlook/LICENSE.md.
+ * Change: imports use Babel standalone directly; reject nonliteral text at the caller.
+ */
 import { packages } from '@babel/standalone';
 import type * as T from '@babel/types';
 

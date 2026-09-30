@@ -20,8 +20,10 @@ export async function fetchModelCatalog(provider?: string, signal?: AbortSignal)
   const path = provider ? `/api/models/${encodeURIComponent(provider)}` : '/api/models';
   const response = await fetch(path, { signal });
 
-  // An FC error or authentication response is not a model catalog. Never put its
-  // missing modelList into React state or render the upstream body to the user.
+  /*
+   * An FC error or authentication response is not a model catalog. Never put its
+   * missing modelList into React state or render the upstream body to the user.
+   */
   if (!response.ok) {
     throw new Error(`模型列表加载失败（HTTP ${response.status}），请重试。`);
   }

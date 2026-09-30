@@ -46,6 +46,7 @@ vi.mock('~/lib/stores/workbench', () => ({
   workbenchStore: {
     onFileSaved: (handler: () => Promise<void>) => {
       state.savedHandler = handler;
+
       return () => {
         state.savedHandler = undefined;
       };
@@ -59,6 +60,7 @@ vi.mock('~/lib/stores/workbench', () => ({
     firstArtifact: { id: 'site', title: '生成的网站' },
     whenActionsSettled: state.settled,
     setDocuments: vi.fn(),
+    setShowWorkbench: vi.fn(),
   },
 }));
 vi.mock('~/lib/webcontainer', () => ({
@@ -105,6 +107,123 @@ beforeEach(() => {
 });
 afterEach(cleanup);
 
+function deferred<T = void>() {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  let reject!: (reason: unknown) => void;
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+
+  return { promise, resolve, reject };
+}
+
+function savedSourceProject() {
+  return cloud({
+    schemaVersion: 1,
+    title: '恢复测试',
+    messages: [{ id: 'answer', role: 'assistant', content: '已完成采购页面', annotations: ['managed-run'] }],
+    snapshot: { chatIndex: 'answer', files: source('saved source') },
+  });
+}
+
+describe('progressive project restoration', () => {
+  it('shows saved conversation before source writes finish, without enabling execution or saving', async () => {
+    const write = deferred();
+    const project = savedSourceProject();
+    state.route = { id: cloudId };
+    state.load.mockResolvedValue(project);
+    state.writeFile.mockReturnValue(write.promise);
+
+    const { result } = renderHook(() => useChatHistory());
+
+    await waitFor(() => expect(result.current.conversationMessages).toEqual(project.document.messages));
+    expect(result.current.ready).toBe(false);
+    expect(result.current.initialMessages).toEqual([]);
+    expect(state.files).toEqual(source('initial'));
+    await expect(result.current.storeMessageHistory(messages)).rejects.toThrow('正在恢复项目代码');
+    await expect(state.savedHandler!()).rejects.toThrow('正在恢复项目代码');
+    expect(state.save).not.toHaveBeenCalled();
+    expect(state.create).not.toHaveBeenCalled();
+
+    await act(async () => write.resolve());
+    await waitFor(() => expect(result.current.ready).toBe(true));
+    expect(state.files).toEqual(source('saved source'));
+    expect(result.current.initialMessages.at(-1)?.annotations).toContain('managed-restore');
+    expect(state.save).not.toHaveBeenCalled();
+  });
+
+  it('retains readable history on a code restore failure without falsely claiming a cloud save failure', async () => {
+    const write = deferred();
+    const project = savedSourceProject();
+    state.route = { id: cloudId };
+    state.load.mockResolvedValue(project);
+    state.writeFile.mockReturnValue(write.promise);
+
+    const { result } = renderHook(() => useChatHistory());
+    await waitFor(() => expect(result.current.conversationMessages).toEqual(project.document.messages));
+    await act(async () => write.reject(new Error('源码写入暂不可用')));
+    await waitFor(() => expect(result.current.loadError).toBe('源码写入暂不可用'));
+    expect(result.current.conversationMessages).toEqual(project.document.messages);
+    expect(result.current.ready).toBe(false);
+    expect(projectPersistence.get()).toBe('saved');
+    await expect(result.current.storeMessageHistory(messages)).rejects.toThrow('正在恢复项目代码');
+    expect(state.save).not.toHaveBeenCalled();
+  });
+
+  it('does not expose history or restore source when authenticated project loading is rejected', async () => {
+    state.route = { id: cloudId };
+    state.load.mockRejectedValueOnce(new Error('请重新登录'));
+
+    const { result } = renderHook(() => useChatHistory());
+    await waitFor(() => expect(result.current.loadError).toBe('请重新登录'));
+    expect(result.current.conversationMessages).toBeUndefined();
+    expect(result.current.ready).toBe(false);
+    expect(state.writeFile).not.toHaveBeenCalled();
+    expect(projectPersistence.get()).toBe('error');
+  });
+
+  it('ignores a previous project response after switching routes', async () => {
+    const load = deferred<ReturnType<typeof cloud>>();
+    state.route = { id: cloudId };
+    state.load.mockReturnValueOnce(load.promise);
+
+    const { result, rerender } = renderHook(() => useChatHistory());
+    state.route = {};
+    rerender();
+    await act(async () => load.resolve(savedSourceProject()));
+    expect(result.current.ready).toBe(true);
+    expect(result.current.conversationMessages).toBeUndefined();
+    expect(result.current.initialMessages).toEqual([]);
+    expect(chatId.get()).toBeUndefined();
+    expect(state.writeFile).not.toHaveBeenCalled();
+  });
+
+  it('hides old history and cancels pending restore writes after switching projects', async () => {
+    const directory = deferred();
+    const newId = '4824c5cb-4d5e-4f4d-9de4-1634e2c33496';
+    state.route = { id: cloudId };
+    state.load.mockResolvedValueOnce(savedSourceProject());
+    state.mkdir.mockReturnValueOnce(directory.promise);
+
+    const { result, rerender } = renderHook(() => useChatHistory());
+    await waitFor(() => expect(state.mkdir).toHaveBeenCalled());
+    state.route = { id: newId };
+    state.load.mockResolvedValueOnce({
+      ...cloud({ schemaVersion: 1, title: '另一会话', messages, snapshot: null }),
+      projectId: newId,
+    });
+    rerender();
+    expect(result.current.conversationMessages).toBeUndefined();
+    await waitFor(() => expect(result.current.ready).toBe(true));
+    await act(async () => directory.resolve());
+    expect(result.current.conversationMessages).toEqual(messages);
+    expect(result.current.initialMessages).toEqual(messages);
+    expect(chatId.get()).toBe(newId);
+    expect(state.writeFile).not.toHaveBeenCalled();
+  });
+});
+
 describe('project persistence lifecycle', () => {
   it('waits for generated file writes then atomically saves messages and source as a UUID cloud document', async () => {
     let release!: () => void;
@@ -114,6 +233,7 @@ describe('project persistence lifecycle', () => {
           release = resolve;
         }),
     );
+
     const { result } = renderHook(() => useChatHistory());
     let saving!: Promise<void>;
     await act(async () => {
@@ -163,6 +283,7 @@ describe('project persistence lifecycle', () => {
   it('restores an alias URL from the canonical snapshot, including a first-message snapshot', async () => {
     state.route = { id: 'generated-site' };
     state.getSnapshot.mockResolvedValue({ chatIndex: 'answer', files: source('saved direct edit') });
+
     const { result } = renderHook(() => useChatHistory());
     await waitFor(() => expect(result.current.ready).toBe(true));
     expect(state.getSnapshot).toHaveBeenCalledWith(expect.anything(), '42');
@@ -173,6 +294,7 @@ describe('project persistence lifecycle', () => {
 
   it('sidebar consumers do not restore files or overwrite the active save handler', async () => {
     state.route = { id: 'generated-site' };
+
     const { result } = renderHook(() => useChatHistory({ restore: false }));
     await waitFor(() => expect(result.current.ready).toBe(true));
     expect(state.getMessages).not.toHaveBeenCalled();
@@ -191,6 +313,7 @@ describe('project persistence lifecycle', () => {
 
   it('keeps editing a legacy project local and atomically preserves its snapshot without upload', async () => {
     state.route = { id: 'generated-site' };
+
     const { result } = renderHook(() => useChatHistory());
     await waitFor(() => expect(result.current.ready).toBe(true));
     await act(async () => {
@@ -207,6 +330,7 @@ describe('project persistence lifecycle', () => {
 
   it('displays local-only state on failed cloud save, not saved', async () => {
     state.create.mockImplementation(async (document) => cloud(document, 'local'));
+
     const { result } = renderHook(() => useChatHistory());
     await act(async () => {
       await result.current.storeMessageHistory(messages);
@@ -227,6 +351,7 @@ describe('project persistence lifecycle', () => {
         },
       }),
     );
+
     const { result } = renderHook(() => useChatHistory());
     await waitFor(() => expect(result.current.ready).toBe(true));
     expect(state.writeFile).toHaveBeenCalledWith('src/App.jsx', 'cloud source');
@@ -234,26 +359,54 @@ describe('project persistence lifecycle', () => {
     expect(state.getMessages).not.toHaveBeenCalled();
   });
 
-  it.each([{}, { src: { type: 'folder' } }])('restores conversation-only projects without a synthetic source artifact (%j)', async (files) => {
-    const conversation = [
-      { id: 'question', role: 'user' as const, content: 'hello' },
-      { id: 'answer', role: 'assistant' as const, content: 'What would you like to build?' },
-    ];
+  it('restores managed task sources without replaying legacy install/start artifacts', async () => {
     state.route = { id: cloudId };
-    state.files = {};
-    state.load.mockResolvedValue(cloud({
-      schemaVersion: 1,
-      title: 'Conversation only',
-      messages: conversation,
-      snapshot: { chatIndex: 'answer', files },
-    }));
+    state.load.mockResolvedValue(
+      cloud({
+        schemaVersion: 1,
+        title: '自动运行项目',
+        messages: [{ id: 'answer', role: 'assistant', content: '自动任务完成', annotations: ['managed-run'] }],
+        snapshot: {
+          chatIndex: 'answer',
+          files: { 'src/App.jsx': { type: 'file', content: 'saved source', isBinary: false } },
+        },
+      }),
+    );
+
     const { result } = renderHook(() => useChatHistory());
     await waitFor(() => expect(result.current.ready).toBe(true));
-    expect(result.current.initialMessages).toEqual(conversation);
-    expect(state.writeFile).not.toHaveBeenCalled();
-    await act(async () => {
-      await result.current.storeMessageHistory(result.current.initialMessages);
-    });
-    expect(state.save).toHaveBeenCalledWith(cloudId, expect.objectContaining({ messages: conversation }));
+    expect(result.current.initialMessages.at(-1)?.annotations).toContain('managed-restore');
+    expect(result.current.initialMessages[0].content).toBe('自动任务完成');
+    expect(result.current.initialMessages[0].content).not.toContain('boltArtifact');
+    expect(state.writeFile).toHaveBeenCalledWith('src/App.jsx', 'saved source');
   });
+
+  it.each([{}, { src: { type: 'folder' } }])(
+    'restores conversation-only projects without a synthetic source artifact (%j)',
+    async (files) => {
+      const conversation = [
+        { id: 'question', role: 'user' as const, content: 'hello' },
+        { id: 'answer', role: 'assistant' as const, content: 'What would you like to build?' },
+      ];
+      state.route = { id: cloudId };
+      state.files = {};
+      state.load.mockResolvedValue(
+        cloud({
+          schemaVersion: 1,
+          title: 'Conversation only',
+          messages: conversation,
+          snapshot: { chatIndex: 'answer', files },
+        }),
+      );
+
+      const { result } = renderHook(() => useChatHistory());
+      await waitFor(() => expect(result.current.ready).toBe(true));
+      expect(result.current.initialMessages).toEqual(conversation);
+      expect(state.writeFile).not.toHaveBeenCalled();
+      await act(async () => {
+        await result.current.storeMessageHistory(result.current.initialMessages);
+      });
+      expect(state.save).toHaveBeenCalledWith(cloudId, expect.objectContaining({ messages: conversation }));
+    },
+  );
 });

@@ -45,6 +45,7 @@ export function instrumentSource(source: string, file: string): string {
       }
 
       seen.add(oid);
+
       const location = attribute(node, 'data-jingyue-source');
 
       if (!location || !t.isStringLiteral(location.value) || location.value.value !== file) {

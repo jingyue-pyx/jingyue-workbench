@@ -29,10 +29,20 @@ export const description = atom<string | undefined>(undefined);
 export const chatMetadata = atom<IChatMetadata | undefined>(undefined);
 
 export async function readProject(id: string): Promise<ProjectDocument> {
-  if (isProjectId(id)) return (await projects.load(id)).document;
-  if (!db) throw new Error('旧项目浏览器存储不可用。');
+  if (isProjectId(id)) {
+    return (await projects.load(id)).document;
+  }
+
+  if (!db) {
+    throw new Error('旧项目浏览器存储不可用。');
+  }
+
   const chat = await getMessages(db, id);
-  if (!chat) throw new Error('找不到项目。');
+
+  if (!chat) {
+    throw new Error('找不到项目。');
+  }
+
   return {
     schemaVersion: 1,
     title: chat.description || '未命名项目',
@@ -48,16 +58,29 @@ export function useChatHistory({ restore = true }: { restore?: boolean } = {}) {
   const [initialMessages, setInitialMessages] = useState<Message[]>([]);
   const [ready, setReady] = useState(false);
   const [loadError, setLoadError] = useState('');
+  const routeKey = `${mixedId || ''}?${searchParams.toString()}`;
+  const [loadedKey, setLoadedKey] = useState('');
+  const [conversation, setConversation] = useState<{ key: string; messages: Message[] }>();
+  const restoring = useRef(restore && !!mixedId);
   const archived = useRef<Message[]>([]);
   const current = useRef<ProjectDocument>();
   const saving = useRef<Promise<unknown>>(Promise.resolve());
 
   async function persist(document: ProjectDocument) {
+    if (restoring.current) {
+      throw new Error('正在恢复项目代码，请完成加载后再保存；已保存的源码不会被覆盖。');
+    }
+
     projectPersistence.set('saving');
+
     const id = chatId.get();
+
     try {
       if (id && !isProjectId(id)) {
-        if (!db) throw new Error('本机项目存储不可用。');
+        if (!db) {
+          throw new Error('本机项目存储不可用。');
+        }
+
         const old = await getMessages(db, id);
         await setLegacyProject(
           db,
@@ -84,8 +107,12 @@ export function useChatHistory({ restore = true }: { restore?: boolean } = {}) {
                 ? 'deleted'
                 : 'local',
         );
-        if (!id) navigateChat(result.projectId);
+
+        if (!id) {
+          navigateChat(result.projectId);
+        }
       }
+
       current.current = document;
       description.set(document.title);
       chatMetadata.set(document.metadata);
@@ -94,20 +121,30 @@ export function useChatHistory({ restore = true }: { restore?: boolean } = {}) {
       throw error;
     }
   }
+
   function enqueue(task: () => Promise<void>) {
     const next = saving.current.catch(() => {}).then(task);
     saving.current = next;
+
     return next;
   }
 
   useEffect(() => {
-    if (!restore) return;
+    if (!restore) {
+      return undefined;
+    }
+
     return workbenchStore.onFileSaved(() =>
       enqueue(async () => {
         await workbenchStore.whenActionsSettled();
+
         const document = current.current;
         const lastMessage = document?.messages.at(-1);
-        if (!document || !lastMessage) throw new Error('项目尚未保存，请等待生成完成。');
+
+        if (!document || !lastMessage) {
+          throw new Error('项目尚未保存，请等待生成完成。');
+        }
+
         await persist({
           ...document,
           title: description.get() || document.title,
@@ -124,10 +161,17 @@ export function useChatHistory({ restore = true }: { restore?: boolean } = {}) {
   useEffect(() => {
     if (!restore) {
       setReady(true);
-      return;
+      return undefined;
     }
+
     let cancelled = false;
+    let conversationLoaded = false;
+    const restoreAbort = new AbortController();
     setLoadError('');
+    setConversation(undefined);
+    restoring.current = !!mixedId;
+    setLoadedKey(routeKey);
+
     if (!mixedId) {
       chatId.set(undefined);
       description.set(undefined);
@@ -136,54 +180,117 @@ export function useChatHistory({ restore = true }: { restore?: boolean } = {}) {
       projectPersistence.set('idle');
       current.current = undefined;
       archived.current = [];
+      setInitialMessages([]);
       setReady(true);
-      return;
+
+      return undefined;
     }
+
     setReady(false);
     (async () => {
       let document: ProjectDocument;
       let canonicalId = mixedId;
+
       if (isProjectId(mixedId)) {
         const project = await projects.load(mixedId);
-        if (cancelled) return;
+
+        if (cancelled) {
+          return;
+        }
+
         activeProjectState.set(project);
-        if (project.deletedAt) throw new Error('此项目已删除。请从回收站明确恢复，或复制本机副本。');
+
+        if (project.deletedAt) {
+          throw new Error('此项目已删除。请从回收站明确恢复，或复制本机副本。');
+        }
+
         document = project.document;
         projectPersistence.set(
           project.state === 'cloud' ? 'saved' : project.state === 'conflict' ? 'conflict' : 'local',
         );
       } else {
         document = await readProject(mixedId);
+
+        if (cancelled) {
+          return;
+        }
+
         canonicalId = (await getMessages(db!, mixedId)).id;
+
+        if (cancelled) {
+          return;
+        }
+
         projectPersistence.set('local');
         activeProjectState.set(undefined);
       }
-      if (cancelled) return;
+
+      if (cancelled) {
+        return;
+      }
+
       current.current = document;
       chatId.set(canonicalId);
       description.set(document.title);
       chatMetadata.set(document.metadata);
+
       const rewind = searchParams.get('rewindTo');
-      if (rewind && isProjectId(mixedId))
+
+      if (rewind && isProjectId(mixedId)) {
         throw new Error('云项目暂不支持按消息回退，请移除地址中的 rewindTo 参数后重新打开。');
+      }
+
       const ending = rewind ? document.messages.findIndex((m) => m.id === rewind) + 1 : document.messages.length;
       const snapshotIndex = document.snapshot
         ? document.messages.findIndex((m) => m.id === document.snapshot!.chatIndex)
         : -1;
-      // A conversation can be saved before the model has produced any files.
-      // Do not replace that conversation with an empty source-restoration artifact.
+
+      /*
+       * A conversation can be saved before the model has produced any files.
+       * Do not replace that conversation with an empty source-restoration artifact.
+       */
       const hasSnapshotFiles = Object.values(document.snapshot?.files || {}).some((file) => file?.type === 'file');
       const useSnapshot = hasSnapshotFiles && snapshotIndex >= 0 && snapshotIndex < ending && !rewind;
       archived.current = useSnapshot ? document.messages.slice(0, snapshotIndex + 1) : [];
+
       let messages = document.messages.slice(useSnapshot ? snapshotIndex + 1 : 0, ending);
+
+      /*
+       * Read-only history can be shown before the sandbox boots. Do not mount
+       * ChatImpl yet: its parser/saver may otherwise replay commands or save an
+       * empty filesystem over the still-restoring snapshot.
+       */
+      conversationLoaded = true;
+      setConversation({ key: routeKey, messages: document.messages.slice(0, ending) });
+
       if (useSnapshot) {
         const snapshot = document.snapshot!;
         const files = isProjectId(mixedId) ? runtimeFiles(snapshot.files) : snapshot.files;
-        const container = await webcontainer;
-        await restoreProjectFiles(container.fs, container.workdir, files);
-        if (cancelled) return;
+        let bootTimeout: ReturnType<typeof setTimeout> | undefined;
+        const container = await Promise.race([
+          webcontainer,
+          new Promise<never>((_resolve, reject) => {
+            bootTimeout = setTimeout(
+              () => reject(new Error('浏览器运行环境恢复超时；项目数据保留，请刷新重试。')),
+              45000,
+            );
+          }),
+        ]).finally(() => clearTimeout(bootTimeout));
+
+        if (cancelled) {
+          return;
+        }
+
+        await restoreProjectFiles(container.fs, container.workdir, files, restoreAbort.signal);
+
+        if (cancelled) {
+          return;
+        }
+
         workbenchStore.files.set(files);
         workbenchStore.setDocuments(files);
+        workbenchStore.setShowWorkbench(true);
+
         const commands = await detectProjectCommands(
           Object.entries(files).flatMap(([path, file]) =>
             file?.type === 'file' ? [{ path, content: file.content }] : [],
@@ -207,36 +314,71 @@ export function useChatHistory({ restore = true }: { restore?: boolean } = {}) {
           },
           ...messages,
         ];
+
+        if (document.messages.some((message) => message.annotations?.includes('managed-run'))) {
+          /*
+           * Managed projects restore source bytes, then verify without replaying
+           * model commands or spending model quota.
+           */
+          messages = [
+            ...document.messages
+              .slice(0, ending)
+              .map((message) => ({ ...message, annotations: [...(message.annotations || []), 'managed-run'] })),
+            {
+              id: generateId(),
+              role: 'assistant',
+              content: '已恢复云端／本机保存的源码，正在重新编译并检查预览；不重新调用模型。',
+              annotations: ['no-store', 'managed-run', 'managed-restore'],
+            },
+          ];
+        }
       }
+
       if (!cancelled) {
+        restoring.current = false;
         setInitialMessages(messages);
         setReady(true);
       }
     })().catch((error) => {
       if (!cancelled) {
         setLoadError(error.message || '项目加载失败。');
-        projectPersistence.set('error');
+
+        // A sandbox restore failure is not evidence that cloud saving failed.
+        if (!conversationLoaded) {
+          projectPersistence.set('error');
+        }
       }
     });
+
     return () => {
       cancelled = true;
+      restoreAbort.abort();
     };
-  }, [mixedId, searchParams, restore]);
+  }, [mixedId, searchParams, restore, routeKey]);
 
   return {
-    ready: !mixedId || ready,
-    loadError,
+    ready: !restore || !mixedId || (loadedKey === routeKey && ready),
+    loadError: loadedKey === routeKey ? loadError : '',
+    conversationMessages: conversation?.key === routeKey ? conversation.messages : undefined,
     initialMessages,
     updateChatMestaData: (metadata: IChatMetadata) =>
       enqueue(async () => {
-        if (!current.current) throw new Error('项目尚未就绪。');
+        if (!current.current) {
+          throw new Error('项目尚未就绪。');
+        }
+
         await persist({ ...current.current, metadata });
       }),
     storeMessageHistory: (messages: Message[]) =>
       enqueue(async () => {
         const clean = messages.filter((m) => !m.annotations?.includes('no-store'));
-        if (!clean.length) return;
+
+        if (!clean.length) {
+          return;
+        }
+
         await workbenchStore.whenActionsSettled();
+
         const all = [...new Map([...archived.current, ...clean].map((m) => [m.id, m])).values()];
         const last = all.at(-1)!;
         const annotation = last.annotations?.find(
@@ -256,14 +398,21 @@ export function useChatHistory({ restore = true }: { restore?: boolean } = {}) {
       }),
     duplicateCurrentChat: async (listItemId: string) => {
       const id = listItemId || chatId.get();
-      if (!id) return;
+
+      if (!id) {
+        return;
+      }
+
       try {
         const newId = isProjectId(id)
           ? (await projects.copy(id)).projectId
           : db
             ? await duplicateChat(db, id)
             : undefined;
-        if (newId) window.location.href = `/chat/${newId}`;
+
+        if (newId) {
+          window.location.href = `/chat/${newId}`;
+        }
       } catch (error) {
         toast.error((error as Error).message);
       }
@@ -278,7 +427,10 @@ export function useChatHistory({ restore = true }: { restore?: boolean } = {}) {
       window.location.href = `/chat/${result.projectId}`;
     },
     exportChat: async (id = chatId.get()) => {
-      if (!id) return;
+      if (!id) {
+        return;
+      }
+
       const projectDocument = isProjectId(id)
         ? ((await projects.local(id)) || (await projects.load(id))).document
         : await readProject(id);

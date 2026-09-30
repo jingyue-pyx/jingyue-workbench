@@ -9,6 +9,7 @@ describe('model catalog response boundary', () => {
   it('returns validated models and forwards cancellation', async () => {
     const fetchMock = vi.fn().mockResolvedValue(Response.json({ modelList: [model] }));
     vi.stubGlobal('fetch', fetchMock);
+
     const controller = new AbortController();
     expect(await fetchModelCatalog('Bailian', controller.signal)).toEqual([model]);
     expect(fetchMock).toHaveBeenCalledWith('/api/models/Bailian', { signal: controller.signal });

@@ -36,6 +36,8 @@ type Artifacts = MapStore<Record<string, ArtifactState>>;
 export type WorkbenchViewType = 'code' | 'diff' | 'preview';
 
 export class WorkbenchStore {
+  manualEditVersion = 0;
+  onManualEdit?: () => void;
   #previewsStore = new PreviewsStore(webcontainer);
   #filesStore = new FilesStore(webcontainer);
   #editorStore = new EditorStore(this.#filesStore);
@@ -86,6 +88,7 @@ export class WorkbenchStore {
 
   async whenActionsSettled() {
     let queue: Promise<void>;
+
     do {
       queue = this.#globalExecutionQueue;
       await queue;
@@ -94,8 +97,11 @@ export class WorkbenchStore {
 
   onFileSaved(handler: () => Promise<void>) {
     this.#fileSaveHandler = handler;
+
     return () => {
-      if (this.#fileSaveHandler === handler) this.#fileSaveHandler = undefined;
+      if (this.#fileSaveHandler === handler) {
+        this.#fileSaveHandler = undefined;
+      }
     };
   }
 
@@ -185,7 +191,18 @@ export class WorkbenchStore {
     this.showWorkbench.set(show);
   }
 
+  refreshPreviews() {
+    this.#previewsStore.refreshAllPreviews();
+  }
+
   setCurrentDocumentContent(newContent: string) {
+    if (this.currentDocument.get()?.value === newContent) {
+      return;
+    }
+
+    this.manualEditVersion++;
+    this.onManualEdit?.();
+
     const filePath = this.currentDocument.get()?.filePath;
 
     if (!filePath) {
@@ -235,6 +252,11 @@ export class WorkbenchStore {
   }
 
   async saveFile(filePath: string, persist = true) {
+    if (persist) {
+      this.manualEditVersion++;
+      this.onManualEdit?.();
+    }
+
     const documents = this.#editorStore.documents.get();
     const document = documents[filePath];
 
@@ -255,7 +277,9 @@ export class WorkbenchStore {
 
     this.unsavedFiles.set(newUnsavedFiles);
 
-    if (persist) await this.#fileSaveHandler?.();
+    if (persist) {
+      await this.#fileSaveHandler?.();
+    }
   }
 
   async saveCurrentDocument() {
@@ -358,6 +382,9 @@ export class WorkbenchStore {
   }
 
   async createFile(filePath: string, content: string | Uint8Array = '') {
+    this.manualEditVersion++;
+    this.onManualEdit?.();
+
     try {
       const success = await this.#filesStore.createFile(filePath, content);
 
@@ -373,6 +400,7 @@ export class WorkbenchStore {
           newUnsavedFiles.delete(filePath);
           this.unsavedFiles.set(newUnsavedFiles);
         }
+
         await this.#fileSaveHandler?.();
       }
 
@@ -384,9 +412,16 @@ export class WorkbenchStore {
   }
 
   async createFolder(folderPath: string) {
+    this.manualEditVersion++;
+    this.onManualEdit?.();
+
     try {
       const success = await this.#filesStore.createFolder(folderPath);
-      if (success) await this.#fileSaveHandler?.();
+
+      if (success) {
+        await this.#fileSaveHandler?.();
+      }
+
       return success;
     } catch (error) {
       console.error('Failed to create folder:', error);
@@ -395,6 +430,9 @@ export class WorkbenchStore {
   }
 
   async deleteFile(filePath: string) {
+    this.manualEditVersion++;
+    this.onManualEdit?.();
+
     try {
       const currentDocument = this.currentDocument.get();
       const isCurrentFile = currentDocument?.filePath === filePath;
@@ -422,6 +460,7 @@ export class WorkbenchStore {
 
           this.setSelectedFile(nextFile);
         }
+
         await this.#fileSaveHandler?.();
       }
 
@@ -433,6 +472,9 @@ export class WorkbenchStore {
   }
 
   async deleteFolder(folderPath: string) {
+    this.manualEditVersion++;
+    this.onManualEdit?.();
+
     try {
       const currentDocument = this.currentDocument.get();
       const isInCurrentFolder = currentDocument?.filePath?.startsWith(folderPath + '/');
@@ -466,6 +508,7 @@ export class WorkbenchStore {
 
           this.setSelectedFile(nextFile);
         }
+
         await this.#fileSaveHandler?.();
       }
 
@@ -580,8 +623,10 @@ export class WorkbenchStore {
       const wc = await webcontainer;
       const fullPath = path.join(wc.workdir, data.action.filePath);
 
-      // Keep editor documents and the runtime on the same instrumented source.
-      // A completed AI edit receives fresh locators before either writer runs.
+      /*
+       * Keep editor documents and the runtime on the same instrumented source.
+       * A completed AI edit receives fresh locators before either writer runs.
+       */
       if (!isStreaming && /\.[jt]sx?$/.test(fullPath) && !fullPath.includes('/node_modules/')) {
         try {
           const { instrumentSource } = await import('~/lib/visual/source');

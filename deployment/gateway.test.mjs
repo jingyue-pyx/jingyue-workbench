@@ -94,6 +94,45 @@ test('gateway authenticates every surface except minimal health status', async (
   assert.equal((await fetch(origin + '/', { headers: { authorization: 'Basic d3Jvbmc6d3Jvbmc=' } })).status, 401);
 });
 
+test('runtime events require authentication and same origin, contain finite labels only, and do not call the model', async (t) => {
+  const events = [];
+  const { origin, received } = await fixture(t, { report: (event) => events.push(event) });
+  const data = { outcome: 'failed', stage: 'planning', reason: 'plan_format', attempt: 0 };
+  const request = (body, overrides = {}) =>
+    fetch(origin + '/api/runtime-events', {
+      method: 'POST',
+      headers: { authorization: auth, origin, 'content-type': 'application/json', ...overrides },
+      body: JSON.stringify(body),
+    });
+  assert.equal((await request(data, { authorization: '' })).status, 401);
+  assert.equal((await request(data, { origin: 'https://other.test' })).status, 403);
+  assert.equal((await fetch(origin + '/api/runtime-events', { headers: { authorization: auth } })).status, 405);
+  assert.equal((await request(data)).status, 200);
+  assert.deepEqual(events, ['client_runtime_failed_planning_plan_format_repair_0']);
+  assert.equal(received(), undefined);
+  for (const body of [
+    { ...data, message: 'credential-canary' },
+    { ...data, stage: 'credential-canary' },
+    { ...data, attempt: 3 },
+    { ...data, reason: 'credential-canary' },
+  ])
+    assert.equal((await request(body)).status, 400);
+  assert.equal((await request({ ...data, message: 'x'.repeat(1024) })).status, 413);
+  assert.deepEqual(events, ['client_runtime_failed_planning_plan_format_repair_0']);
+});
+
+test('runtime event ingestion has an independent bounded rate limit', async (t) => {
+  const { origin } = await fixture(t);
+  const send = () =>
+    fetch(origin + '/api/runtime-events', {
+      method: 'POST',
+      headers: { authorization: auth, origin, 'content-type': 'application/json' },
+      body: JSON.stringify({ outcome: 'cancelled', stage: 'planning', reason: 'none', attempt: 0 }),
+    });
+  for (let i = 0; i < 30; i++) assert.equal((await send()).status, 200);
+  assert.equal((await send()).status, 429);
+});
+
 test('SSR, static assets, model catalog and isolation headers work after authentication', async (t) => {
   const { origin } = await fixture(t);
   for (const path of ['/', '/chat/1', '/asset.js', '/api/models/Bailian']) {

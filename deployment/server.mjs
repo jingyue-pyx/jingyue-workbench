@@ -7,6 +7,7 @@ import { createGateway, failureDetails } from './gateway.mjs';
 import { createModelNetwork } from './network.mjs';
 import { createProjectStore } from './project-store.mjs';
 import { AccountStore } from './accounts.mjs';
+import { createDemoDataStore } from './demo-data.mjs';
 
 // Upstream logs may contain raw SDK errors, prompts, or request headers. Only
 // fixed deployment events are emitted, never raw upstream console arguments.
@@ -28,6 +29,8 @@ process.on('unhandledRejection', (error) => {
 try {
   if (Number(process.versions.node.split('.')[0]) < 22) throw new Error('Node 22 or later is required.');
   const config = configuration(process.env);
+  // Capture native fetch before installing the model-only outbound adapter.
+  const demoDataStore = createDemoDataStore(process.env, globalThis.fetch);
   const network = createModelNetwork(config);
   const projectStore = await createProjectStore(process.env, report);
   if (config.authMode === 'accounts' && !projectStore) throw new Error('Account storage is required.');
@@ -41,6 +44,7 @@ try {
     report,
     projectStore,
     accountStore,
+    demoDataStore,
   });
   server.listen(config.port, config.host, () => report('private_preview_ready'));
 } catch {

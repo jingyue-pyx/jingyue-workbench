@@ -2,6 +2,8 @@
 export function visualPreviewScript(parentOrigin: string): string {
   return `(() => {
     const parentOrigin = ${JSON.stringify(parentOrigin)};
+    if (window.__jingyueVisualOrigin === parentOrigin) return;
+    window.__jingyueVisualOrigin = parentOrigin;
     let enabled = false;
     let hovered = null;
     let oldOutline = '';

@@ -18,6 +18,7 @@ describe('SSR HTML streaming', () => {
     const source = new ReadableStream<Uint8Array>({ cancel });
     const reader = frameHtmlStream(source, '<body>', '</body>').getReader();
     await reader.read();
+
     const pending = reader.read();
     await expect(reader.cancel('navigation')).resolves.toBeUndefined();
     expect(await pending).toEqual({ done: true, value: undefined });

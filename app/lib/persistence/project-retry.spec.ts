@@ -5,6 +5,7 @@ afterEach(() => vi.useRealTimers());
 describe('visible-only bounded cloud retry', () => {
   it('retries at most five times and cancels on unmount', async () => {
     vi.useFakeTimers();
+
     const retry = vi.fn().mockResolvedValue(true);
     const stop = visibleProjectRetry(retry, { isVisible: () => true, subscribe: () => () => {} });
     await vi.advanceTimersByTimeAsync(95000);
@@ -15,6 +16,7 @@ describe('visible-only bounded cloud retry', () => {
   });
   it('does not run in a hidden page and stops when a conflict or success ends retryability', async () => {
     vi.useFakeTimers();
+
     let visible = false;
     let listener = () => {};
     const retry = vi.fn().mockResolvedValue(false);
@@ -22,6 +24,7 @@ describe('visible-only bounded cloud retry', () => {
       isVisible: () => visible,
       subscribe: (fn) => {
         listener = fn;
+
         return () => {};
       },
     });
@@ -37,6 +40,7 @@ describe('visible-only bounded cloud retry', () => {
   });
   it('cancels its timer when the page becomes hidden', async () => {
     vi.useFakeTimers();
+
     let visible = true;
     let listener = () => {};
     const retry = vi.fn().mockResolvedValue(true);
@@ -44,6 +48,7 @@ describe('visible-only bounded cloud retry', () => {
       isVisible: () => visible,
       subscribe: (fn) => {
         listener = fn;
+
         return () => {};
       },
     });

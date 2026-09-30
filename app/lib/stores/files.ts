@@ -598,7 +598,11 @@ export class FilesStore {
 
     // Set up file watcher
     webcontainer.internal.watchPaths(
-      { include: [`${WORK_DIR}/**`], exclude: ['**/node_modules', '.git'], includeContent: true },
+      {
+        include: [`${WORK_DIR}/**`],
+        exclude: ['**/node_modules', '.git', '**/.jingyue-candidates/**'],
+        includeContent: true,
+      },
       bufferWatchEvents(100, this.#processEventBuffer.bind(this)),
     );
 
@@ -696,6 +700,14 @@ export class FilesStore {
     for (const { type, path: eventPath, buffer } of watchEvents) {
       // remove any trailing slashes
       const sanitizedPath = eventPath.replace(/\/+$/g, '');
+
+      /*
+       * Staged compilation must not publish files into the editor or cloud snapshot,
+       * even if the SDK's glob exclusion reports a parent-directory event.
+       */
+      if (sanitizedPath.split('/').includes('.jingyue-candidates')) {
+        continue;
+      }
 
       // Skip processing if this file/folder was explicitly deleted
       if (this.#deletedPaths.has(sanitizedPath)) {

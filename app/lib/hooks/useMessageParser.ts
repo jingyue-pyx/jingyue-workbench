@@ -59,6 +59,11 @@ export function useMessageParser() {
     }
 
     for (const [index, message] of messages.entries()) {
+      if (message.annotations?.includes('managed-run')) {
+        setParsedMessages((previous) => ({ ...previous, [index]: extractTextContent(message) }));
+        continue;
+      }
+
       if (message.role === 'assistant' || message.role === 'user') {
         const newParsedContent = messageParser.parse(message.id, extractTextContent(message));
         setParsedMessages((prevParsed) => ({

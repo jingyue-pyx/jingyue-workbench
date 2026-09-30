@@ -190,8 +190,8 @@ ${lockedFilesListString}
       providerSettings,
     }),
     system: systemPrompt,
-    maxTokens: dynamicMaxTokens,
     messages: convertToCoreMessages(processedMessages as any),
     ...options,
+    maxTokens: Math.min(options?.maxTokens ?? dynamicMaxTokens, dynamicMaxTokens),
   });
 }

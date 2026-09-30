@@ -24,9 +24,12 @@ export default async function handleRequest(
     },
   });
 
-  // Browsers use streaming rather than allReady, but a later abort can still
-  // reject React's allReady promise. Observe it on both paths.
+  /*
+   * Browsers use streaming rather than allReady, but a later abort can still
+   * reject React's allReady promise. Observe it on both paths.
+   */
   void readable.allReady.catch(() => {});
+
   if (isbot(request.headers.get('user-agent') || '')) {
     await readable.allReady;
   }

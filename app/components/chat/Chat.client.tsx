@@ -10,6 +10,7 @@ import { memo, useCallback, useEffect, useRef, useState } from 'react';
 import { cssTransition, toast, ToastContainer } from 'react-toastify';
 import { useMessageParser, usePromptEnhancer, useShortcuts } from '~/lib/hooks';
 import { description, useChatHistory } from '~/lib/persistence';
+import { chatId } from '~/lib/persistence/useChatHistory';
 import { chatStore } from '~/lib/stores/chat';
 import { workbenchStore } from '~/lib/stores/workbench';
 import { DEFAULT_MODEL, DEFAULT_PROVIDER, PROMPT_COOKIE_KEY, PROVIDER_LIST } from '~/utils/constants';
@@ -22,12 +23,21 @@ import { useSettings } from '~/lib/hooks/useSettings';
 import type { ProviderInfo } from '~/types/model';
 import { useSearchParams } from '@remix-run/react';
 import { createSampler } from '~/utils/sampler';
-import { getTemplates, selectStarterTemplate } from '~/utils/selectStarterTemplate';
 import { logStore } from '~/lib/stores/logs';
 import { streamingState } from '~/lib/stores/streaming';
-import { filesToArtifacts } from '~/utils/fileUtils';
 import { supabaseConnection } from '~/lib/stores/supabase';
 import { ProjectSyncStatus } from './ProjectSyncStatus';
+import {
+  captureSources,
+  runManagedTask,
+  runState,
+  stopManagedRun,
+  verifyRestoredProject,
+} from '~/lib/runtime/managed/session';
+import { terminalPhase } from '~/lib/runtime/managed/protocol';
+import { routeConversation, latestOutcome } from '~/lib/runtime/managed/conversation';
+import { managedModelRequest } from '~/lib/runtime/managed/model-client';
+import { ProjectLoadingView } from './ProjectLoadingView';
 
 const toastAnimation = cssTransition({
   enter: 'animated fadeInRight',
@@ -39,7 +49,8 @@ const logger = createScopedLogger('Chat');
 export function Chat() {
   renderLogger.trace('Chat');
 
-  const { ready, loadError, initialMessages, storeMessageHistory, importChat, exportChat } = useChatHistory();
+  const { ready, loadError, conversationMessages, initialMessages, storeMessageHistory, importChat, exportChat } =
+    useChatHistory();
   const title = useStore(description);
   useEffect(() => {
     workbenchStore.setReloadedMessages(initialMessages.map((m) => m.id));
@@ -48,15 +59,12 @@ export function Chat() {
   return (
     <>
       <ProjectSyncStatus />
-      {!ready && !loadError && (
-        <p role="status" className="p-4">
-          正在载入项目；云数据库可能需要唤醒，请稍候。
-        </p>
-      )}
-      {loadError && (
-        <div role="alert" className="p-4">
-          {loadError} <a href="/">返回首页</a>
-        </div>
+      {!ready && (
+        <ProjectLoadingView
+          messages={conversationMessages}
+          error={loadError}
+          onRetry={() => window.location.reload()}
+        />
       )}
       {ready && (
         <ChatImpl
@@ -135,16 +143,48 @@ export const ChatImpl = memo(
     const [uploadedFiles, setUploadedFiles] = useState<File[]>([]);
     const [imageDataList, setImageDataList] = useState<string[]>([]);
     const [searchParams, setSearchParams] = useSearchParams();
-    const [fakeLoading, setFakeLoading] = useState(false);
+    const [fakeLoading] = useState(false);
     const files = useStore(workbenchStore.files);
     const actionAlert = useStore(workbenchStore.alert);
+    const managedState = useStore(runState);
+    const managedBusy = !terminalPhase(managedState.phase);
+    const [routing, setRouting] = useState(false);
+    const conversationAbort = useRef<AbortController>();
+    const taskPromise = useRef<Promise<unknown>>();
+    const messagesRef = useRef(initialMessages);
+    useEffect(() => {
+      let active = true;
+
+      if (initialMessages.some((message) => message.annotations?.includes('managed-restore'))) {
+        verifyRestoredProject(async (result) => {
+          if (!active) {
+            return;
+          }
+
+          messagesRef.current = [...messagesRef.current, result];
+          setMessages(messagesRef.current);
+          await storeMessageHistory(messagesRef.current);
+        }).catch((error) => {
+          if (active) {
+            toast.error(error.message);
+          }
+        });
+      }
+
+      return () => {
+        active = false;
+        conversationAbort.current?.abort();
+        stopManagedRun('页面已切换，自动任务已停止。');
+      };
+    }, []);
+
     const deployAlert = useStore(workbenchStore.deployAlert);
     const supabaseConn = useStore(supabaseConnection); // Add this line to get Supabase connection
     const selectedProject = supabaseConn.stats?.projects?.find(
       (project) => project.id === supabaseConn.selectedProjectId,
     );
     const supabaseAlert = useStore(workbenchStore.supabaseAlert);
-    const { activeProviders, promptId, autoSelectTemplate, contextOptimizationEnabled } = useSettings();
+    const { activeProviders, promptId, contextOptimizationEnabled } = useSettings();
 
     const [model, setModel] = useState(() => {
       const savedModel = Cookies.get('selectedModel');
@@ -168,9 +208,7 @@ export const ChatImpl = memo(
       handleInputChange,
       setInput,
       stop,
-      append,
       setMessages,
-      reload,
       error,
       data: chatData,
       setData,
@@ -230,20 +268,11 @@ export const ChatImpl = memo(
 
       if (prompt) {
         setSearchParams({});
-        runAnimation();
-        append({
-          role: 'user',
-          content: [
-            {
-              type: 'text',
-              text: `[Model: ${model}]\n\n[Provider: ${provider.name}]\n\n${prompt}`,
-            },
-          ] as any, // Type assertion to bypass compiler check
-        });
+        void sendMessage({} as React.UIEvent, prompt);
       }
     }, [model, provider, searchParams]);
 
-    const { enhancingPrompt, promptEnhanced, enhancePrompt, resetEnhancer } = usePromptEnhancer();
+    const { enhancingPrompt, promptEnhanced, enhancePrompt } = usePromptEnhancer();
     const { parsedMessages, parseMessages } = useMessageParser();
 
     const TEXTAREA_MAX_HEIGHT = chatStarted ? 400 : 200;
@@ -271,6 +300,8 @@ export const ChatImpl = memo(
     };
 
     const abort = () => {
+      conversationAbort.current?.abort();
+      stopManagedRun();
       stop();
       chatStore.setKey('aborted', true);
       workbenchStore.abortAllActions();
@@ -318,165 +349,176 @@ export const ChatImpl = memo(
         return;
       }
 
-      if (isLoading) {
+      if (isLoading || conversationAbort.current || (managedBusy && managedState.phase !== 'reviewing')) {
         abort();
         return;
       }
 
-      // If no locked items, proceed normally with the original message
-      const finalMessageContent = messageContent;
-
-      runAnimation();
-
-      if (!chatStarted) {
-        setFakeLoading(true);
-
-        if (autoSelectTemplate) {
-          const { template, title } = await selectStarterTemplate({
-            message: finalMessageContent,
-            model,
-            provider,
-          });
-
-          if (template !== 'blank') {
-            const temResp = await getTemplates(template, title).catch((e) => {
-              if (e.message.includes('rate limit')) {
-                toast.warning('Rate limit exceeded. Skipping starter template\n Continuing with blank template');
-              } else {
-                toast.warning('Failed to import starter template\n Continuing with blank template');
-              }
-
-              return null;
-            });
-
-            if (temResp) {
-              const { assistantMessage, userMessage } = temResp;
-              setMessages([
-                {
-                  id: `1-${new Date().getTime()}`,
-                  role: 'user',
-                  content: [
-                    {
-                      type: 'text',
-                      text: `[Model: ${model}]\n\n[Provider: ${provider.name}]\n\n${finalMessageContent}`,
-                    },
-                    ...imageDataList.map((imageData) => ({
-                      type: 'image',
-                      image: imageData,
-                    })),
-                  ] as any,
-                },
-                {
-                  id: `2-${new Date().getTime()}`,
-                  role: 'assistant',
-                  content: assistantMessage,
-                },
-                {
-                  id: `3-${new Date().getTime()}`,
-                  role: 'user',
-                  content: `[Model: ${model}]\n\n[Provider: ${provider.name}]\n\n${userMessage}`,
-                  annotations: ['hidden'],
-                },
-              ]);
-              reload();
-              setInput('');
-              Cookies.remove(PROMPT_COOKIE_KEY);
-
-              setUploadedFiles([]);
-              setImageDataList([]);
-
-              resetEnhancer();
-
-              textareaRef.current?.blur();
-              setFakeLoading(false);
-
-              return;
-            }
-          }
-        }
-
-        // If autoSelectTemplate is disabled or template selection failed, proceed with normal message
-        setMessages([
-          {
-            id: `${new Date().getTime()}`,
-            role: 'user',
-            content: [
-              {
-                type: 'text',
-                text: `[Model: ${model}]\n\n[Provider: ${provider.name}]\n\n${finalMessageContent}`,
-              },
-              ...imageDataList.map((imageData) => ({
-                type: 'image',
-                image: imageData,
-              })),
-            ] as any,
-          },
-        ]);
-        reload();
-        setFakeLoading(false);
-        setInput('');
-        Cookies.remove(PROMPT_COOKIE_KEY);
-
-        setUploadedFiles([]);
-        setImageDataList([]);
-
-        resetEnhancer();
-
-        textareaRef.current?.blur();
-
+      /*
+       * The managed pipeline owns file application and verification. It does not
+       * turn model output into executable chat artifacts or arbitrary shell commands.
+       */
+      if (uploadedFiles.length || imageDataList.length) {
+        toast.info('当前自动闭环先支持文本需求；请移除附件后运行。');
         return;
       }
 
-      if (error != null) {
-        setMessages(messages.slice(0, -1));
-      }
+      runAnimation();
 
-      const modifiedFiles = workbenchStore.getModifiedFiles();
-
-      chatStore.setKey('aborted', false);
-
-      if (modifiedFiles !== undefined) {
-        const userUpdateArtifact = filesToArtifacts(modifiedFiles, `${Date.now()}`);
-        append({
-          role: 'user',
-          content: [
-            {
-              type: 'text',
-              text: `[Model: ${model}]\n\n[Provider: ${provider.name}]\n\n${userUpdateArtifact}${finalMessageContent}`,
-            },
-            ...imageDataList.map((imageData) => ({
-              type: 'image',
-              image: imageData,
-            })),
-          ] as any,
-        });
-
-        workbenchStore.resetAllFileModifications();
-      } else {
-        append({
-          role: 'user',
-          content: [
-            {
-              type: 'text',
-              text: `[Model: ${model}]\n\n[Provider: ${provider.name}]\n\n${finalMessageContent}`,
-            },
-            ...imageDataList.map((imageData) => ({
-              type: 'image',
-              image: imageData,
-            })),
-          ] as any,
-        });
-      }
-
+      const userMessage: Message = {
+        id: crypto.randomUUID(),
+        role: 'user',
+        content: messageContent,
+        annotations: ['managed-run'],
+      };
+      messagesRef.current = [...messages, userMessage];
+      setMessages(messagesRef.current);
       setInput('');
       Cookies.remove(PROMPT_COOKIE_KEY);
+      chatStore.setKey('aborted', false);
 
-      setUploadedFiles([]);
-      setImageDataList([]);
+      const requestAbort = new AbortController();
+      const routingTimeout = setTimeout(
+        () => requestAbort.abort(new Error('对话响应超时，尚未开始新的生成任务。')),
+        60000,
+      );
+      conversationAbort.current = requestAbort;
+      setRouting(true);
 
-      resetEnhancer();
+      const record = async (result: Message) => {
+        messagesRef.current = [...messagesRef.current, result];
+        setMessages(messagesRef.current);
+        await storeMessageHistory(messagesRef.current);
+      };
 
-      textareaRef.current?.blur();
+      try {
+        // Persist first so a new task has a stable, account-scoped project id.
+        await storeMessageHistory(messagesRef.current);
+
+        /*
+         * Questions need the same current project snapshot as coding tasks.
+         * Do not read a different cloud project or wait for a sandbox reinstall.
+         */
+        const sources = captureSources();
+        const decision = await routeConversation(messageContent, {
+          history: messagesRef.current,
+          hasSources: Object.keys(sources).length > 0,
+          signal: requestAbort.signal,
+          request: (phase, task) =>
+            managedModelRequest(
+              phase,
+              {
+                task,
+                files: sources,
+                errors: [JSON.stringify(latestOutcome(messagesRef.current) || {})],
+              },
+              {
+                model,
+                provider: provider.name,
+                history: messagesRef.current,
+                signal: requestAbort.signal,
+                projectId: chatId.get(),
+              },
+            ),
+        });
+        requestAbort.signal.throwIfAborted();
+
+        if ('answer' in decision) {
+          await record({
+            id: crypto.randomUUID(),
+            role: 'assistant',
+            content: decision.answer,
+            annotations: ['managed-run', 'managed-answer'],
+          });
+          return;
+        }
+
+        if ('action' in decision) {
+          if (!terminalPhase(runState.get().phase)) {
+            await record({
+              id: crypto.randomUUID(),
+              role: 'assistant',
+              annotations: ['managed-run', 'managed-answer'],
+              content: '当前方案仍待确认，请先确认或调整这份方案；本次没有重新规划或改动文件。',
+            });
+            return;
+          }
+
+          if (!Object.keys(workbenchStore.files.get()).some((path) => path.endsWith('/package.json'))) {
+            await record({
+              id: crypto.randomUUID(),
+              role: 'assistant',
+              annotations: ['managed-run', 'managed-answer'],
+              content: '当前项目还没有可运行的源码。先完成已有方案的生成，再启动预览；本次不会自动创建新方案。',
+            });
+            return;
+          }
+
+          conversationAbort.current = undefined;
+          clearTimeout(routingTimeout);
+          setRouting(false);
+          await record({
+            id: crypto.randomUUID(),
+            role: 'assistant',
+            annotations: ['managed-run'],
+            content: '正在使用已有源码重新检查并启动预览，不重新规划、不调用模型改写文件。',
+          });
+          taskPromise.current = verifyRestoredProject(record);
+          await taskPromise.current;
+
+          return;
+        }
+
+        /*
+         * Asking a question leaves the pending plan alone. A new explicit task
+         * invalidates the old approval before starting another plan.
+         */
+        if (runState.get().phase === 'reviewing') {
+          stopManagedRun('新的需求替代了待确认方案；旧确认按钮已失效。');
+          await taskPromise.current;
+        }
+
+        requestAbort.signal.throwIfAborted();
+        messagesRef.current = messagesRef.current.map((message) =>
+          message.id === userMessage.id
+            ? { ...message, content: decision.task, annotations: ['managed-run', 'managed-task'] }
+            : message,
+        );
+        setMessages(messagesRef.current);
+        await storeMessageHistory(messagesRef.current);
+        conversationAbort.current = undefined;
+        clearTimeout(routingTimeout);
+        setRouting(false);
+        taskPromise.current = runManagedTask(decision.task, {
+          model,
+          provider: provider.name,
+          reviewPlan: decision.reviewPlan,
+          history: messagesRef.current,
+          saveDraft: () => storeMessageHistory(messagesRef.current),
+          record,
+        });
+        await taskPromise.current;
+      } catch (error) {
+        if (
+          requestAbort.signal.aborted &&
+          requestAbort.signal.reason instanceof Error &&
+          requestAbort.signal.reason.message.includes('响应超时')
+        ) {
+          toast.error(requestAbort.signal.reason.message);
+        } else if (!requestAbort.signal.aborted) {
+          toast.error(error instanceof Error ? error.message : '自动任务未启动，草稿保留。');
+        }
+      } finally {
+        clearTimeout(routingTimeout);
+
+        // A previous long-running plan must not clear a newer question's state.
+        if (conversationAbort.current === requestAbort) {
+          conversationAbort.current = undefined;
+          setRouting(false);
+        }
+      }
+
+      return;
     };
 
     /**
@@ -524,7 +566,7 @@ export const ChatImpl = memo(
         input={input}
         showChat={showChat}
         chatStarted={chatStarted}
-        isStreaming={isLoading || fakeLoading}
+        isStreaming={isLoading || fakeLoading || routing || (managedBusy && managedState.phase !== 'reviewing')}
         onStreamingChange={(streaming) => {
           streamingState.set(streaming);
         }}

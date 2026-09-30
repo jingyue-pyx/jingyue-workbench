@@ -20,6 +20,7 @@ export function VisualDemoButton({
         onClick={async () => {
           setBusy(true);
           setError('');
+
           try {
             await importChat?.('可运行的 React 编辑示例', visualDemoMessages());
           } catch (error) {

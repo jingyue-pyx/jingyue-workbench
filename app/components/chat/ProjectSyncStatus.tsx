@@ -6,6 +6,7 @@ import { activeProjectState, projects } from '~/lib/persistence/projects';
 import { isProjectId } from '~/lib/persistence/project-document';
 import { projectCache } from '~/lib/persistence/project-cache';
 import { visibleProjectRetry } from '~/lib/persistence/project-retry';
+import chrome from '~/components/ui/WorkbenchChrome.module.scss';
 
 export function ProjectSyncStatus() {
   const id = useStore(chatId);
@@ -14,12 +15,20 @@ export function ProjectSyncStatus() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   useEffect(() => {
-    if (!project || project.state !== 'local' || !project.retryable) return;
+    if (!project || project.state !== 'local' || !project.retryable) {
+      return undefined;
+    }
+
     return visibleProjectRetry(
       async () => {
         const latest = await projects.local(project.projectId);
-        if (!latest || latest.state !== 'local' || !latest.retryable) return false;
+
+        if (!latest || latest.state !== 'local' || !latest.retryable) {
+          return false;
+        }
+
         const result = await projects.save(latest.projectId, latest.document);
+
         return result.state === 'local' && !!result.retryable;
       },
       {
@@ -31,9 +40,11 @@ export function ProjectSyncStatus() {
       },
     );
   }, [project?.projectId, project?.state, project?.retryable, project?.pending?.requestId]);
+
   const run = async (action: () => Promise<void>) => {
     setBusy(true);
     setError('');
+
     try {
       await action();
     } catch (error) {
@@ -59,9 +70,10 @@ export function ProjectSyncStatus() {
                 : project?.state === 'local'
                   ? '仅本机草稿 · 尚未获得云端保存确认'
                   : '新项目默认云同步；云服务不可用时保存本机草稿。';
+
   return (
     <section
-      className="px-4 py-2 text-xs border-b border-bolt-elements-borderColor text-bolt-elements-textSecondary"
+      className={`${chrome.sync} px-4 py-2 text-xs border-b border-bolt-elements-borderColor text-bolt-elements-textSecondary`}
       aria-label="项目保存状态"
     >
       <p role="status">{status}</p>
@@ -79,10 +91,13 @@ export function ProjectSyncStatus() {
                   !window.confirm(
                     '仅迁移当前旧项目：上传对话和已保存源码，排除 .env、.git、node_modules，不上传设置或密钥。旧项目仍保留在本机。继续？',
                   )
-                )
+                ) {
                   return;
+                }
+
                 const existing = await projectCache.meta(`migration:${id}`);
                 let target = existing;
+
                 if (!target) {
                   const migrated = await projects.create(await readProject(id!), {
                     sourceId: await projects.migrationSource(),
@@ -91,6 +106,7 @@ export function ProjectSyncStatus() {
                   target = migrated.projectId;
                   await projectCache.meta(`migration:${id}`, target);
                 }
+
                 window.location.href = `/chat/${target}`;
               })
             }
@@ -120,8 +136,10 @@ export function ProjectSyncStatus() {
                     !window.confirm(
                       '载入云端会替换当前本机草稿。要保留本机修改，请先选择“复制本机为新项目”。继续载入云端？',
                     )
-                  )
+                  ) {
                     return;
+                  }
+
                   await projects.load(project.projectId, true);
                   window.location.reload();
                 })

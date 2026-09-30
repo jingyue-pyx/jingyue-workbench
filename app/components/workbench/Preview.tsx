@@ -1,5 +1,6 @@
 import { memo, useCallback, useEffect, useRef, useState } from 'react';
 import { useStore } from '@nanostores/react';
+import { reloadPreview as reconnectPreview } from '@webcontainer/api/utils';
 import { IconButton } from '~/components/ui/IconButton';
 import { workbenchStore } from '~/lib/stores/workbench';
 import { PortDropdown } from './PortDropdown';
@@ -8,6 +9,9 @@ import { expoUrlAtom } from '~/lib/stores/qrCodeStore';
 import { ExpoQrModal } from '~/components/workbench/ExpoQrModal';
 import { VisualEditor } from './VisualEditor';
 import { webcontainerBootStatus } from '~/lib/webcontainer/boot-status';
+import { chatId } from '~/lib/persistence/useChatHistory';
+import { currentAccount, accountStorage } from '~/lib/auth/account-context';
+import { attachDemoDataBridge } from '~/lib/runtime/demo-data/bridge';
 
 type ResizeSide = 'left' | 'right' | null;
 
@@ -63,6 +67,22 @@ export const Preview = memo(() => {
   const activePreview = previews[activePreviewIndex];
   const [displayPath, setDisplayPath] = useState('/');
   const [iframeUrl, setIframeUrl] = useState<string | undefined>();
+  const projectId = useStore(chatId);
+  useEffect(() => {
+    if (!iframeUrl || !projectId || !currentAccount) {
+      return undefined;
+    }
+
+    return attachDemoDataBridge({
+      target: window,
+      iframe: () => iframeRef.current,
+      origin: new URL(iframeUrl).origin,
+      projectId,
+      accountId: currentAccount.id,
+      storage: accountStorage,
+    });
+  }, [iframeUrl, projectId]);
+
   const [isSelectionMode, setIsSelectionMode] = useState(false);
 
   // Toggle between responsive mode and device mode
@@ -121,7 +141,17 @@ export const Preview = memo(() => {
 
   const reloadPreview = () => {
     if (iframeRef.current) {
-      iframeRef.current.src = iframeRef.current.src;
+      const frame = iframeRef.current;
+
+      /*
+       * The SDK reloads through the preview proxy; resetting src alone can
+       * reload its stale "no server" shell instead of reconnecting the app.
+       */
+      void reconnectPreview(frame).catch(() => {
+        if (iframeRef.current === frame) {
+          frame.src = frame.src;
+        }
+      });
     }
   };
 
@@ -629,7 +659,7 @@ export const Preview = memo(() => {
       )}
       <div className="bg-bolt-elements-background-depth-2 p-2 flex items-center gap-2">
         <div className="flex items-center gap-2">
-          <IconButton icon="i-ph:arrow-clockwise" onClick={reloadPreview} />
+          <IconButton icon="i-ph:arrow-clockwise" title="重新连接预览" onClick={reloadPreview} />
           <IconButton
             icon="i-ph:selection"
             onClick={() => setIsSelectionMode(!isSelectionMode)}
@@ -865,7 +895,7 @@ export const Preview = memo(() => {
             alignItems: 'center',
           }}
         >
-          {activePreview ? (
+          {activePreview?.ready ? (
             <>
               {isDeviceModeOn && showDeviceFrameInPreview ? (
                 <div
@@ -934,6 +964,7 @@ export const Preview = memo(() => {
                     />
 
                     <iframe
+                      key={`${activePreview.port}:${activePreview.revision ?? 0}`}
                       ref={iframeRef}
                       title="preview"
                       style={{
@@ -951,6 +982,7 @@ export const Preview = memo(() => {
                 </div>
               ) : (
                 <iframe
+                  key={`${activePreview.port}:${activePreview.revision ?? 0}`}
                   ref={iframeRef}
                   title="preview"
                   className="border-none w-full h-full bg-bolt-elements-background-depth-1"

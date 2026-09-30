@@ -71,9 +71,16 @@ export function useEditChatDescription({
     }
 
     try {
-      if (isProjectId(chatId)) return ((await projects.local(chatId)) || (await projects.load(chatId))).document.title;
-      if (!db) return initialDescription;
+      if (isProjectId(chatId)) {
+        return ((await projects.local(chatId)) || (await projects.load(chatId))).document.title;
+      }
+
+      if (!db) {
+        return initialDescription;
+      }
+
       const chat = await getMessages(db, chatId);
+
       return chat?.description || initialDescription;
     } catch (error) {
       console.error('Failed to fetch latest description:', error);
@@ -132,8 +139,11 @@ export function useEditChatDescription({
           return;
         }
 
-        if (isProjectId(chatId)) await projects.rename(chatId, currentDescription.trim());
-        else await updateChatDescription(db!, chatId, currentDescription.trim());
+        if (isProjectId(chatId)) {
+          await projects.rename(chatId, currentDescription.trim());
+        } else {
+          await updateChatDescription(db!, chatId, currentDescription.trim());
+        }
 
         if (syncWithGlobalStore) {
           descriptionStore.set(currentDescription);

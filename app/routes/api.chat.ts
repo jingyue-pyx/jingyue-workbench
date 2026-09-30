@@ -11,6 +11,8 @@ import type { ContextAnnotation, ProgressAnnotation } from '~/types/context';
 import { WORK_DIR } from '~/utils/constants';
 import { createSummary } from '~/lib/.server/llm/create-summary';
 import { extractPropertiesFromMessage } from '~/lib/.server/llm/utils';
+import { managedSystemPrompt, type ManagedPhase } from '~/lib/runtime/managed/protocol';
+import { conversationPrompt, type ConversationPhase } from '~/lib/runtime/managed/conversation';
 
 export async function action(args: ActionFunctionArgs) {
   return chatAction(args);
@@ -37,11 +39,23 @@ function parseCookies(cookieHeader: string): Record<string, string> {
 }
 
 async function chatAction({ context, request }: ActionFunctionArgs) {
-  const { messages, files, promptId, contextOptimization, supabase } = await request.json<{
+  const {
+    messages,
+    files,
+    promptId,
+    contextOptimization,
+    supabase,
+    managedPhase,
+    managedPlanFinalization,
+    managedDemoStorage,
+  } = await request.json<{
     messages: Messages;
     files: any;
     promptId?: string;
     contextOptimization: boolean;
+    managedPhase?: ManagedPhase | ConversationPhase;
+    managedPlanFinalization?: boolean;
+    managedDemoStorage?: boolean;
     supabase?: {
       isConnected: boolean;
       hasSelectedProject: boolean;
@@ -57,6 +71,54 @@ async function chatAction({ context, request }: ActionFunctionArgs) {
   const providerSettings: Record<string, IProviderSetting> = JSON.parse(
     parseCookies(cookieHeader || '').providers || '{}',
   );
+
+  if (managedPhase !== undefined) {
+    if (
+      !['intent', 'answer', 'plan', 'generate', 'repair'].includes(managedPhase) ||
+      !Array.isArray(messages) ||
+      messages.length !== 1
+    ) {
+      return new Response('Invalid managed request', { status: 400 });
+    }
+
+    /*
+     * Exactly one upstream call per gateway-counted request: no hidden summary,
+     * context selection or continuation calls in the automatic repair loop.
+     */
+    const result = await streamText({
+      messages,
+      env: context.cloudflare?.env,
+      apiKeys,
+      providerSettings,
+      options: {
+        system:
+          managedPhase === 'intent' || managedPhase === 'answer'
+            ? conversationPrompt(managedPhase)
+            : managedSystemPrompt(managedPhase, managedPlanFinalization === true, managedDemoStorage === true),
+        abortSignal: request.signal,
+        maxTokens:
+          managedPhase === 'intent' || managedPhase === 'answer' ? 1600 : managedPhase === 'plan' ? 2600 : 12000,
+        toolChoice: 'none',
+
+        /*
+         * Metadata only: diagnose truncation without logging project sources,
+         * generated text, conversations, credentials or provider error bodies.
+         */
+        onFinish: ({ finishReason, usage }) => {
+          logger.info(
+            'Managed model completion',
+            JSON.stringify({
+              phase: managedPhase,
+              finishReason,
+              completionTokens: usage.completionTokens,
+            }),
+          );
+        },
+      },
+    });
+
+    return result.toDataStreamResponse({ headers: { 'Cache-Control': 'no-store' } });
+  }
 
   let continuationCount = 0;
 
@@ -226,6 +288,7 @@ async function chatAction({ context, request }: ActionFunctionArgs) {
             }
 
             continuationCount++;
+
             const switchesLeft = MAX_RESPONSE_SEGMENTS - continuationCount;
 
             logger.info(`Reached max token limit (${MAX_TOKENS}): Continuing message (${switchesLeft} switches left)`);
@@ -339,7 +402,10 @@ async function chatAction({ context, request }: ActionFunctionArgs) {
           // Convert the string stream to a byte stream
           const str = typeof transformedChunk === 'string' ? transformedChunk : JSON.stringify(transformedChunk);
           const normalized = normalizeContinuationChunk(str);
-          if (normalized) controller.enqueue(encoder.encode(normalized));
+
+          if (normalized) {
+            controller.enqueue(encoder.encode(normalized));
+          }
         },
       }),
     );

@@ -57,6 +57,8 @@ await writeFile(
 );
 await cp(join(root, 'deployment/README.md'), join(output, 'DEPLOYMENT.md'));
 await cp(join(root, 'deployment/sql'), join(output, 'sql'), { recursive: true });
+await cp(join(root, 'deployment/supabase'), join(output, 'supabase'), { recursive: true });
+await cp(join(root, 'deployment/supabase.env.example'), join(output, 'supabase.env.example'));
 await cp(join(root, 'deployment/PROJECTS.md'), join(output, 'PROJECTS.md'));
 await cp(join(root, 'deployment/ACCOUNTS.md'), join(output, 'ACCOUNTS.md'));
 await cp(join(root, 'deployment/persistence.env.example'), join(output, 'persistence.env.example'));

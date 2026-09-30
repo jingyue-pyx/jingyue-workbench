@@ -8,7 +8,14 @@ interface ProjectFileSystem {
 }
 
 /** Restore bytes directly, never turn project contents into executable chat markup. */
-export async function restoreProjectFiles(fs: ProjectFileSystem, workdir: string, files: FileMap) {
+export async function restoreProjectFiles(
+  fs: ProjectFileSystem,
+  workdir: string,
+  files: FileMap,
+  signal?: AbortSignal,
+) {
+  signal?.throwIfAborted();
+
   const entries = Object.entries(files).map(([name, entry]) => {
     const absolute = path.isAbsolute(name) ? name : path.join(workdir, name);
     const relative = path.relative(workdir, absolute);
@@ -25,14 +32,22 @@ export async function restoreProjectFiles(fs: ProjectFileSystem, workdir: string
   });
 
   for (const item of entries) {
-    if (!item?.entry) continue;
+    signal?.throwIfAborted();
+
+    if (!item?.entry) {
+      continue;
+    }
+
     const { relative, entry } = item;
 
     if (entry.type === 'folder') {
       await fs.mkdir(relative, { recursive: true });
     } else {
       await fs.mkdir(path.dirname(relative), { recursive: true });
+      signal?.throwIfAborted();
       await fs.writeFile(relative, entry.isBinary ? Buffer.from(entry.content, 'base64') : entry.content);
     }
+
+    signal?.throwIfAborted();
   }
 }

@@ -10,6 +10,7 @@ describe('Bailian provider configuration', () => {
 
   it('fails clearly when no key is supplied and rejects insecure endpoints', () => {
     const resolve = vi.spyOn(DEFAULT_PROVIDER, 'getProviderBaseUrlAndKey');
+
     try {
       resolve.mockReturnValue({ baseUrl: DEFAULT_PROVIDER.config.baseUrl, apiKey: undefined });
       expect(() => DEFAULT_PROVIDER.getModelInstance({ model: DEFAULT_MODEL, serverEnv: {} as Env })).toThrow(

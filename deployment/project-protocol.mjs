@@ -57,7 +57,7 @@ export function safeProjectPath(name) {
 }
 
 export function containsCredential(value) {
-  return /\bsk-[a-zA-Z0-9_-]{20,}|\bLTAI[a-zA-Z0-9]{12,}|-----BEGIN (?:[A-Z]+ )*PRIVATE KEY-----|\b(?:postgres(?:ql)?|mysql|mongodb(?:\+srv)?):\/\/[^\s/:@]+:[^\s/@]+@/i.test(
+  return /\bsb_secret_[a-zA-Z0-9_-]{20,}|\bsk-[a-zA-Z0-9_-]{20,}|\bLTAI[a-zA-Z0-9]{12,}|-----BEGIN (?:[A-Z]+ )*PRIVATE KEY-----|\b(?:postgres(?:ql)?|mysql|mongodb(?:\+srv)?):\/\/[^\s/:@]+:[^\s/@]+@/i.test(
     value,
   );
 }

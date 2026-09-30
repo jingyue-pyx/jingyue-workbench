@@ -1,0 +1,109 @@
+.layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  width: 100%;
+  max-width: 900px;
+  margin-inline: auto;
+  flex: 1;
+  min-height: 0;
+  padding: 16px;
+  gap: 20px;
+  color: var(--bolt-elements-textPrimary);
+  &[data-conversation-ready='true'] {
+    max-width: none;
+    grid-template-columns: minmax(300px, 1fr) minmax(0, 1.2fr);
+  }
+}
+.conversation {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.status {
+  padding: 12px 16px;
+  border-inline-start: 2px solid var(--bolt-elements-borderColorActive);
+  h2 {
+    margin: 0;
+    font-size: 14px;
+    font-weight: 600;
+  }
+  p {
+    margin: 6px 0 0;
+    color: var(--bolt-elements-textSecondary);
+    font-size: 13px;
+    line-height: 1.7;
+  }
+  button,
+  a {
+    font-size: 13px;
+    margin-top: 10px;
+    color: var(--bolt-elements-textPrimary);
+  }
+  button {
+    padding: 6px 12px;
+    border: 1px solid var(--bolt-elements-borderColor);
+    border-radius: 6px;
+    background: var(--bolt-elements-bg-depth-2);
+  }
+  a {
+    margin-left: 12px;
+    text-decoration: underline;
+  }
+}
+.history {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  margin-top: 16px;
+  article + article {
+    margin-top: 12px;
+  }
+}
+.speaker {
+  display: block;
+  font-size: 12px;
+  margin-bottom: 6px;
+  color: var(--bolt-elements-textSecondary);
+}
+.readOnly {
+  font-size: 12px;
+  color: var(--bolt-elements-textSecondary);
+  padding: 12px 16px;
+}
+.code {
+  min-height: 280px;
+  border: 1px solid var(--bolt-elements-borderColor);
+  border-radius: 12px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.codeTitle {
+  padding: 14px 18px;
+  font-size: 13px;
+  border-bottom: 1px solid var(--bolt-elements-borderColor);
+}
+.placeholder {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  text-align: center;
+  font-size: 14px;
+  line-height: 1.7;
+  span {
+    color: var(--bolt-elements-textSecondary);
+    font-size: 13px;
+  }
+}
+@media (max-width: 760px) {
+  .layout[data-conversation-ready='true'] {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .code {
+    min-height: 180px;
+  }
+}

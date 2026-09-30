@@ -8,6 +8,38 @@ const filesystem = () => ({
 });
 
 describe('project snapshot restoration', () => {
+  it('does not write when restoration has already been cancelled', async () => {
+    const fs = filesystem();
+    const abort = new AbortController();
+    abort.abort();
+    await expect(
+      restoreProjectFiles(fs, '/home/project', { 'src/App.jsx': text('saved') }, abort.signal),
+    ).rejects.toThrow();
+    expect(fs.mkdir).not.toHaveBeenCalled();
+    expect(fs.writeFile).not.toHaveBeenCalled();
+  });
+
+  it('checks cancellation after directory creation before writing source', async () => {
+    const fs = filesystem();
+    const abort = new AbortController();
+    fs.mkdir.mockImplementation(async () => abort.abort());
+    await expect(
+      restoreProjectFiles(fs, '/home/project', { 'src/App.jsx': text('saved') }, abort.signal),
+    ).rejects.toThrow();
+    expect(fs.writeFile).not.toHaveBeenCalled();
+  });
+
+  it('stops subsequent writes when cancellation occurs during a file write', async () => {
+    const fs = filesystem();
+    const abort = new AbortController();
+    fs.writeFile.mockImplementation(async () => abort.abort());
+    await expect(
+      restoreProjectFiles(fs, '/home/project', { 'a.txt': text('a'), 'b.txt': text('b') }, abort.signal),
+    ).rejects.toThrow();
+    expect(fs.writeFile).toHaveBeenCalledTimes(1);
+    expect(fs.writeFile).toHaveBeenCalledWith('a.txt', 'a');
+  });
+
   it('preserves manually edited source and action-like text verbatim', async () => {
     const fs = filesystem();
     const content = 'const title = "直接编辑后的标题"; const tag = "</boltAction>";';

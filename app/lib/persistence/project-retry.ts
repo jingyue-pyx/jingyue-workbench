@@ -9,14 +9,24 @@ export function visibleProjectRetry(
   let timer: ReturnType<typeof setTimeout> | undefined;
   let running = false;
   const schedule = () => {
-    if (stopped || running || timer || attempt >= delays.length || !visibility.isVisible()) return;
+    if (stopped || running || timer || attempt >= delays.length || !visibility.isVisible()) {
+      return;
+    }
+
     timer = setTimeout(async () => {
       timer = undefined;
-      if (stopped || !visibility.isVisible()) return;
+
+      if (stopped || !visibility.isVisible()) {
+        return;
+      }
+
       running = true;
       attempt++;
+
       try {
-        if (!(await retry())) stopped = true;
+        if (!(await retry())) {
+          stopped = true;
+        }
       } catch {
         stopped = true;
       }
@@ -29,12 +39,18 @@ export function visibleProjectRetry(
       clearTimeout(timer);
       timer = undefined;
     }
+
     schedule();
   });
   schedule();
+
   return () => {
     stopped = true;
-    if (timer) clearTimeout(timer);
+
+    if (timer) {
+      clearTimeout(timer);
+    }
+
     unsubscribe();
   };
 }

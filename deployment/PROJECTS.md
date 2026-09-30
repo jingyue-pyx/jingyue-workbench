@@ -137,3 +137,72 @@ The final cloud acceptance must apply schema using approved credentials, verify
 the explicitly selected transport (strict TLS by default; private plaintext only
 under the demo exception above), exercise two-session revision conflicts and transaction rollback,
 confirm persistence after instance restart, and check cross-browser recovery.
+# Generated-app demo data (optional Supabase integration)
+
+Workbench source and chat persistence remain in the existing workbench database.
+This opt-in adapter separately stores **generated-app runtime JSON data** in one
+Supabase test project. It does not migrate the workbench database, create paid
+resources, or give generated applications an arbitrary SQL/backend runtime.
+
+- Apply `supabase/001-demo-data.sql` only to the selected new Supabase test project.
+- Configure the three server-only fields in `supabase.env.example`. For local
+  acceptance, `.supabase.local.env` is ignored by Git and must have mode 600.
+- `JINGYUE_DEMO_WORKBENCH_PROJECT` must name exactly one existing workbench project.
+  The gateway proves session identity and project ownership on every read/write.
+  Changing an account ID or project ID in the browser does not authorize access.
+- A generated React app imports `useDemoData` from `src/lib/jingyue-data.ts`.
+  Its data flows through the active preview iframe → same-origin authenticated
+  gateway → fixed Supabase RPC over HTTPS. It never receives a management token,
+  service key, database password, or workbench session cookie.
+- An existing project gets the optional helper after plan approval; merely adding
+  the helper does not migrate localStorage data or enable storage for other apps.
+- Autosave is debounced by 600ms. Only a server acknowledgement means “saved”.
+  A scoped browser draft is kept before writes, including newer edits made while
+  a previous save is in flight. Network retries reuse their mutation identifier.
+  Revision conflicts stop rather than silently overwriting another page.
+- Demo limits: 64KB per JSON document, 20 document keys, one bound workbench
+  project; object/array read/replace only. Removing an item means saving an updated
+  array/object. No arbitrary schema, SQL, file uploads, payments or app-user Auth.
+- The bridge works only inside the logged-in workbench preview. Standalone export,
+  a separately opened preview tab, and independent website publishing need a
+  separate authentication/integration design and are not delivered by this adapter.
+- Project soft deletion blocks new data API requests but retains remote demo data;
+  restoring the same project can recover it. Permanent cleanup is a separate,
+  deliberate action. In-flight writes authorized before deletion may complete.
+- The Secret key remains elevated. RLS is enabled, direct table access and RPC
+  execution are denied to `anon`/`authenticated`, and only the server calls the
+  narrowly defined RPC. These controls do not make exposing a Secret key safe.
+
+Local checks: `node --test deployment/demo-data.test.mjs` exercises real embedded
+PostgreSQL schema/privileges plus mocked HTTP, not the live Supabase service.
+Browser autosave/bridge tests are under `app/lib/runtime/demo-data`. Live database
+connectivity, generated-app interaction, reload recovery and cross-account access
+must still be checked before release. The Free plan can pause inactive projects;
+network/restart failures must remain visible, not be labelled successful saves.
+
+### Local integration acceptance — 2026-09-29
+
+Using the dedicated local fixture and the authorized Supabase Free test project:
+
+- Live HTTPS RPC read/write, idempotent retry and stale-revision rejection passed.
+- Chrome/WebContainers: the purchase-list fixture compiled and opened; adding a
+  synthetic record reached a server-confirmed saved state. Full workbench reload
+  restored that record and quantity. This was not a model-generated acceptance run.
+- WebContainers rewrites `document.referrer` during its service-worker bootstrap.
+  The client now broadcasts only a nonce-only handshake; the mounted preview's
+  exact window and origin are validated by the host before any business request.
+  Business payloads and replies use exact origins, never wildcard destinations.
+- JSONB object key reordering no longer creates false lost-acknowledgement
+  conflicts. Newer local drafts remain protected.
+- 254 application tests, 69 deployment tests, type checking, production build,
+  credential scan and 74 macOS installation checks passed. The installation
+  checks use mocked services, not the live database, and do not validate Linux.
+
+No production deployment or RDS migration was performed. Before release, still
+exercise model-generated storage use, independent browser/account isolation,
+simultaneous browser edits and offline recovery against the real cloud service.
+Current scope remains one configured workbench project, not storage for every
+newly generated application. No model calls were made for this acceptance fixture.
+
+References: [Supabase key security](https://supabase.com/docs/guides/getting-started/api-keys),
+[database functions](https://supabase.com/docs/guides/database/functions).

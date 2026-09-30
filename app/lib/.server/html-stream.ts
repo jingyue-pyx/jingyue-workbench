@@ -41,8 +41,11 @@ export function frameHtmlStream(readable: ReadableStream<Uint8Array>, prefix: st
     },
     async cancel(reason) {
       closed = true;
-      // Cancel through the owning reader. readable.cancel() would reject with
-      // ERR_INVALID_STATE here because getReader() has locked the stream.
+
+      /*
+       * Cancel through the owning reader. readable.cancel() would reject with
+       * ERR_INVALID_STATE here because getReader() has locked the stream.
+       */
       await reader.cancel(reason).catch(() => {});
       reader.releaseLock();
     },

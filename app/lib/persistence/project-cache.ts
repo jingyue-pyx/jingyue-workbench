@@ -23,10 +23,16 @@ export interface ProjectCache {
 }
 
 let connection: Promise<IDBDatabase> | undefined;
+
 function database() {
   return (connection ??= new Promise((resolve, reject) => {
-    if (typeof indexedDB === 'undefined') return reject(new Error('本机项目存储不可用，请允许浏览器存储。'));
+    if (typeof indexedDB === 'undefined') {
+      reject(new Error('本机项目存储不可用，请允许浏览器存储。'));
+      return;
+    }
+
     const request = indexedDB.open(scopedDatabaseName('jingyueProjects'), 1);
+
     request.onupgradeneeded = () => {
       request.result.createObjectStore('projects', { keyPath: 'projectId' });
       request.result.createObjectStore('meta');
@@ -35,6 +41,7 @@ function database() {
     request.onerror = () => reject(new Error('无法打开本机项目缓存。'));
   }));
 }
+
 async function operation<T>(
   store: string,
   mode: IDBTransactionMode,
@@ -55,7 +62,10 @@ export const projectCache: ProjectCache = {
   },
   all: () => operation('projects', 'readonly', (s) => s.getAll()),
   meta: async (key, value) => {
-    if (value !== undefined) await operation('meta', 'readwrite', (s) => s.put(value, key));
+    if (value !== undefined) {
+      await operation('meta', 'readwrite', (s) => s.put(value, key));
+    }
+
     return operation('meta', 'readonly', (s) => s.get(key));
   },
 };

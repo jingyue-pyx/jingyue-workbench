@@ -3,7 +3,7 @@ import { toast } from 'react-toastify';
 import { ImportFolderButton } from '~/components/chat/ImportFolderButton';
 import { Button } from '~/components/ui/Button';
 import { classNames } from '~/utils/classNames';
-import { VisualDemoButton } from '../VisualDemoButton';
+import { VisualDemoButton } from '~/components/chat/VisualDemoButton';
 import type { Snapshot } from '~/lib/persistence/types';
 import type { IChatMetadata } from '~/lib/persistence/db';
 

@@ -6,6 +6,7 @@ afterEach(() => vi.useRealTimers());
 describe('WebContainer startup feedback', () => {
   it('reports a stalled handshake instead of an empty preview forever', async () => {
     vi.useFakeTimers();
+
     const update = vi.fn();
     monitorBoot(new Promise(() => {}), update);
     expect(update).toHaveBeenLastCalledWith('loading');
@@ -15,6 +16,7 @@ describe('WebContainer startup feedback', () => {
 
   it('keeps waiting and recovers if startup eventually succeeds', async () => {
     vi.useFakeTimers();
+
     let finish!: () => void;
     const boot = new Promise<void>((resolve) => (finish = resolve));
     const update = vi.fn();
@@ -28,6 +30,7 @@ describe('WebContainer startup feedback', () => {
 
   it('clears the warning timer on immediate success', async () => {
     vi.useFakeTimers();
+
     const update = vi.fn();
     monitorBoot(Promise.resolve(), update);
     await vi.advanceTimersByTimeAsync(60_000);
@@ -36,6 +39,7 @@ describe('WebContainer startup feedback', () => {
 
   it('reports a generic failure without exposing SDK error details', async () => {
     vi.useFakeTimers();
+
     const update = vi.fn();
     monitorBoot(Promise.reject(new Error('private upstream details')), update);
     await vi.advanceTimersByTimeAsync(60_000);

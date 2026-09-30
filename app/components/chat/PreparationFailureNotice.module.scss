@@ -1,0 +1,55 @@
+// A quiet inline system note, not another task panel or an actionable button.
+.notice {
+  min-width: 0;
+  padding: 4px 0 4px 14px;
+  border-inline-start: 2px solid var(--bolt-elements-borderColorActive);
+  font-family:
+    ui-sans-serif,
+    system-ui,
+    -apple-system,
+    BlinkMacSystemFont,
+    'PingFang SC',
+    'Microsoft YaHei',
+    sans-serif;
+  line-height: 1.7;
+  overflow-wrap: anywhere;
+
+  p {
+    margin: 0;
+  }
+}
+.title {
+  color: var(--bolt-elements-textPrimary);
+  font-size: 14px;
+  font-weight: 600;
+}
+.description {
+  margin-top: 5px !important;
+  color: var(--bolt-elements-textSecondary);
+  font-size: 13px;
+  font-weight: 400;
+}
+.reason {
+  margin-top: 7px !important;
+  color: var(--bolt-elements-textPrimary);
+  font-size: 13px;
+  font-weight: 400;
+
+  strong {
+    font-weight: 500;
+  }
+}
+.suggestions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px 10px;
+  margin-top: 10px !important;
+  font-size: 12px;
+  font-weight: 400;
+}
+.label {
+  color: var(--bolt-elements-textSecondary);
+}
+.example {
+  color: var(--bolt-elements-textPrimary);
+}

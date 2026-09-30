@@ -43,6 +43,7 @@ describe('Onlook source editing adapter', () => {
   it('rejects stale, ambiguous, nested and dynamic targets', () => {
     expect(() => editSource(source, 'missing', { kind: 'text', value: 'x' })).toThrow();
     expect(() => editSource('<><p data-oid="x"/><p data-oid="x"/></>', 'x', { kind: 'text', value: 'x' })).toThrow();
+
     for (const body of ['{name}', '<span>child</span>']) {
       const input = `<h1 data-oid="x">${body}</h1>`;
       expect(inspectSource(input, 'x').textEditable).toBe(false);

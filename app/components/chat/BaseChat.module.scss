@@ -1,4 +1,7 @@
 .BaseChat {
+  &[data-chat-started='true'] {
+    background: var(--bolt-elements-bg-depth-1);
+  }
   &[data-chat-visible='false'] {
     --workbench-inner-width: 100%;
     --workbench-left: 0;
@@ -16,6 +19,87 @@
 
 .Chat {
   opacity: 1;
+  min-width: 0;
+}
+
+.Intro {
+  margin-top: clamp(48px, 12vh, 120px);
+  h1 {
+    font-size: clamp(30px, 3.5vw, 48px);
+    line-height: 1.2;
+    letter-spacing: -0.035em;
+    font-weight: 650;
+  }
+  p {
+    font-size: 15px;
+    line-height: 1.8;
+    max-width: 520px;
+    margin-inline: auto;
+  }
+}
+
+.Composer {
+  border-radius: 16px;
+  padding: 12px;
+  background: var(--bolt-elements-bg-depth-1);
+  border-color: var(--bolt-elements-borderColor);
+  box-shadow: 0 4px 24px color-mix(in srgb, var(--bolt-elements-textPrimary) 5%, transparent);
+  .PromptEffectContainer {
+    display: none;
+  }
+}
+
+.ComposerInput {
+  border-radius: 12px;
+  background: var(--bolt-elements-bg-depth-2);
+  transition:
+    border-color 150ms ease,
+    box-shadow 150ms ease;
+  &:focus-within {
+    border-color: var(--bolt-elements-borderColorActive);
+    box-shadow: 0 0 0 2px var(--bolt-elements-item-backgroundAccent);
+  }
+  textarea {
+    font-size: 14px;
+    line-height: 1.65;
+    padding-top: 16px;
+    padding-bottom: 8px;
+  }
+}
+
+.ComposerToolbar {
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 8px 10px 10px;
+}
+.ComposerActions {
+  flex-wrap: wrap;
+  min-width: 0;
+  button {
+    min-height: 30px;
+    min-width: 30px;
+    border-radius: 7px;
+    &:focus-visible {
+      outline: 2px solid var(--bolt-elements-borderColorActive);
+      outline-offset: 2px;
+    }
+  }
+}
+.ModelLabel {
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.KeyboardHint {
+  margin-left: auto;
+  white-space: nowrap;
+  font-size: 11px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .ComposerInput {
+    transition: none;
+  }
 }
 
 .PromptEffectContainer {

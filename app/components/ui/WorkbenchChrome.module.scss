@@ -1,0 +1,104 @@
+// Presentation only: preserve workbench routes, panels and runtime behavior.
+.header {
+  background: var(--bolt-elements-bg-depth-1);
+  gap: 12px;
+  min-width: 0;
+  padding-inline: 20px;
+  a:focus-visible,
+  button:focus-visible {
+    outline: 2px solid var(--bolt-elements-borderColorActive);
+    outline-offset: 3px;
+  }
+}
+.title {
+  min-width: 0;
+  font-size: 14px;
+  font-weight: 550;
+  letter-spacing: -0.015em;
+}
+.account {
+  flex-shrink: 0;
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  background: var(--bolt-elements-bg-depth-2);
+  &:hover {
+    border-color: var(--bolt-elements-borderColorActive);
+  }
+}
+.sync {
+  background: var(--bolt-elements-bg-depth-1);
+  line-height: 1.6;
+  > div:empty {
+    display: none;
+  }
+  button {
+    padding: 4px 8px;
+    border-radius: 6px;
+    color: var(--bolt-elements-item-contentAccent);
+    background: var(--bolt-elements-item-backgroundAccent);
+    &:focus-visible {
+      outline: 2px solid var(--bolt-elements-borderColorActive);
+      outline-offset: 2px;
+    }
+  }
+}
+.visualTools {
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--bolt-elements-borderColor);
+  background: var(--bolt-elements-bg-depth-1);
+  color: var(--bolt-elements-textPrimary);
+  button {
+    min-height: 32px;
+    border-radius: 8px;
+    background: var(--bolt-elements-bg-depth-2);
+    white-space: nowrap;
+    &:hover:not(:disabled) {
+      border-color: var(--bolt-elements-borderColorActive);
+    }
+  }
+  button:focus-visible,
+  input:focus-visible {
+    outline: 2px solid var(--bolt-elements-borderColorActive);
+    outline-offset: 2px;
+  }
+}
+.visualHeading {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  > span {
+    color: var(--bolt-elements-textSecondary);
+    font-size: 12px;
+  }
+}
+.visualStatus {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 4px 16px;
+  flex-wrap: wrap;
+  margin-top: 8px;
+  color: var(--bolt-elements-textSecondary);
+  font-size: 11px;
+  line-height: 1.5;
+  p {
+    margin: 0;
+  }
+}
+@media (max-width: 640px) {
+  .header {
+    gap: 6px;
+    padding-inline: 12px;
+  }
+  .account {
+    max-width: 112px;
+    font-size: 12px;
+    padding-inline: 8px;
+  }
+  .visualTools {
+    padding-inline: 12px;
+  }
+}

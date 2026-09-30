@@ -12,7 +12,10 @@ vi.mock('./account-context', () => ({
   accountStorage: {
     getItem: (key: string) => state.values.get(key) ?? null,
     setItem: (key: string, value: string) => {
-      if (state.fail) throw new Error('Storage full');
+      if (state.fail) {
+        throw new Error('Storage full');
+      }
+
       state.values.set(key, value);
     },
     removeItem: (key: string) => state.values.delete(key),
@@ -22,13 +25,17 @@ beforeEach(() => {
   vi.resetModules();
   state.values.clear();
   state.fail = false;
-  for (const name of Object.keys(Cookies.get())) Cookies.remove(name);
+
+  for (const name of Object.keys(Cookies.get())) {
+    Cookies.remove(name);
+  }
 });
 afterEach(() => vi.restoreAllMocks());
 
 describe('bulky browser preferences stay out of request cookies', () => {
   it('stores large logs/settings/drafts locally without adding request bytes', async () => {
     const { default: preferences } = await import('./account-cookies');
+
     for (const key of ['eventLogs', 'providers', 'tabConfiguration', 'cachedPrompt']) {
       const value = 'test-data-'.repeat(1000);
       preferences.set(key, value);
@@ -42,6 +49,7 @@ describe('bulky browser preferences stay out of request cookies', () => {
     Cookies.set('jy_other_eventLogs', 'another account');
     Cookies.set('eventLogs', 'legacy logs');
     Cookies.set('test_session', 'not-a-real-session');
+
     const { default: preferences } = await import('./account-cookies');
     expect(preferences.get('eventLogs')).toBe('old logs');
     expect(Cookies.get(`jy_${state.id}_eventLogs`)).toBeUndefined();
@@ -54,6 +62,7 @@ describe('bulky browser preferences stay out of request cookies', () => {
   it('preserves the old cookie if local migration cannot be saved and never writes a large new cookie', async () => {
     Cookies.set(`jy_${state.id}_providers`, 'old settings');
     state.fail = true;
+
     const { default: preferences } = await import('./account-cookies');
     expect(preferences.get('providers')).toBe('old settings');
     expect(Cookies.get(`jy_${state.id}_providers`)).toBe('old settings');

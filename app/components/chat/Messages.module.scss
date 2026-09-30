@@ -1,0 +1,29 @@
+.message {
+  min-width: 0;
+  gap: 12px;
+  padding: 16px;
+  border-radius: 12px;
+  line-height: 1.7;
+  font-size: 14px;
+  overflow-wrap: anywhere;
+}
+.user {
+  background: var(--bolt-elements-bg-depth-2);
+  border: 1px solid var(--bolt-elements-borderColor);
+}
+.assistant {
+  background: transparent;
+  border: 1px solid transparent;
+}
+.avatar {
+  width: 30px;
+  height: 30px;
+}
+.content {
+  min-width: 0;
+}
+@media (max-width: 640px) {
+  .message {
+    padding-inline: 10px;
+  }
+}
