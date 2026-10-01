@@ -21,11 +21,12 @@ import {
   type SourceFiles,
 } from './protocol';
 import { PlanReviewGate, validatePlanAdjustment } from './plan-review';
-import { reportRuntime, runMessage } from './presentation';
+import { reportModelBatch, reportRuntime, runMessage } from './presentation';
 import { toast } from 'react-toastify';
 import { outcomeAnnotation } from './conversation';
 import { runActivity, recordWrittenFile } from './activity';
 import { compileCandidate } from './candidate-workspace';
+import { createBatchedModel } from './file-batches';
 
 const planReview = new PlanReviewGate();
 export const planReviewReady = atom(false);
@@ -210,6 +211,32 @@ export async function runManagedTask(
     }
 
     const project = chatId.get() || 'new';
+    const revision = workbenchStore.manualEditVersion;
+    const batchedModel = createBatchedModel(
+      (phase, payload, signal) => {
+        runActivity.set({ ...runActivity.get(), receivedChars: 0 });
+        return managedModelRequest(phase, payload, {
+          ...options,
+          projectId: chatId.get(),
+          signal,
+          onProgress: (receivedChars) => runActivity.set({ ...runActivity.get(), receivedChars }),
+        });
+      },
+      {
+        capture: captureSources,
+        guard: () => {
+          if (workbenchStore.manualEditVersion !== revision) {
+            throw new RunError('检测到手动修改，自动任务已停止，避免覆盖你的内容。');
+          }
+        },
+        retain: async (files) => {
+          await checkpoint(project, 'candidate', files);
+        },
+        diagnostic: (input, code) => {
+          void reportModelBatch(input, code, chatId.get());
+        },
+      },
+    );
     let planVersion = 0;
     controller = new ManagedRunController(
       {
@@ -269,15 +296,7 @@ export async function runManagedTask(
             planReview.confirm(runState.get().id);
           }
         },
-        model: (phase, payload, signal) => {
-          runActivity.set({ ...runActivity.get(), receivedChars: 0 });
-          return managedModelRequest(phase, payload, {
-            ...options,
-            projectId: chatId.get(),
-            signal,
-            onProgress: (receivedChars) => runActivity.set({ ...runActivity.get(), receivedChars }),
-          });
-        },
+        model: batchedModel,
         apply: async (files, signal) => {
           await applySources(files, signal);
           await options.saveDraft?.();
@@ -285,7 +304,7 @@ export async function runManagedTask(
         verify: (files, signal, stage) => runtime.verify(files, signal, stage),
         stop: () => runtime.stop(),
         record: async (state) => {
-          void reportRuntime(state);
+          void reportRuntime(state, chatId.get());
 
           if (state.plan && (!description.get() || description.get() === '未命名项目')) {
             description.set(state.plan.goal.slice(0, 100));

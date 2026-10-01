@@ -13,6 +13,7 @@ import { createSummary } from '~/lib/.server/llm/create-summary';
 import { extractPropertiesFromMessage } from '~/lib/.server/llm/utils';
 import { managedSystemPrompt, type ManagedPhase } from '~/lib/runtime/managed/protocol';
 import { conversationPrompt, type ConversationPhase } from '~/lib/runtime/managed/conversation';
+import { managedOutputTokens, managedTrace as sanitizeManagedTrace } from '~/lib/runtime/managed/request-policy';
 
 export async function action(args: ActionFunctionArgs) {
   return chatAction(args);
@@ -48,6 +49,8 @@ async function chatAction({ context, request }: ActionFunctionArgs) {
     managedPhase,
     managedPlanFinalization,
     managedDemoStorage,
+    managedBatchMode,
+    managedTrace,
   } = await request.json<{
     messages: Messages;
     files: any;
@@ -56,6 +59,8 @@ async function chatAction({ context, request }: ActionFunctionArgs) {
     managedPhase?: ManagedPhase | ConversationPhase;
     managedPlanFinalization?: boolean;
     managedDemoStorage?: boolean;
+    managedBatchMode?: unknown;
+    managedTrace?: unknown;
     supabase?: {
       isConnected: boolean;
       hasSelectedProject: boolean;
@@ -74,7 +79,7 @@ async function chatAction({ context, request }: ActionFunctionArgs) {
 
   if (managedPhase !== undefined) {
     if (
-      !['intent', 'answer', 'plan', 'generate', 'repair'].includes(managedPhase) ||
+      !['intent', 'answer', 'plan', 'manifest', 'generate', 'repair'].includes(managedPhase) ||
       !Array.isArray(messages) ||
       messages.length !== 1
     ) {
@@ -96,8 +101,7 @@ async function chatAction({ context, request }: ActionFunctionArgs) {
             ? conversationPrompt(managedPhase)
             : managedSystemPrompt(managedPhase, managedPlanFinalization === true, managedDemoStorage === true),
         abortSignal: request.signal,
-        maxTokens:
-          managedPhase === 'intent' || managedPhase === 'answer' ? 1600 : managedPhase === 'plan' ? 2600 : 12000,
+        maxTokens: managedOutputTokens(managedPhase, managedBatchMode),
         toolChoice: 'none',
 
         /*
@@ -108,6 +112,7 @@ async function chatAction({ context, request }: ActionFunctionArgs) {
           logger.info(
             'Managed model completion',
             JSON.stringify({
+              ...sanitizeManagedTrace(managedTrace),
               phase: managedPhase,
               finishReason,
               completionTokens: usage.completionTokens,

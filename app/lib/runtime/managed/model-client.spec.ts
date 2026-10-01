@@ -5,6 +5,46 @@ import { parsePlan } from './protocol';
 afterEach(() => vi.unstubAllGlobals());
 
 describe('managed model request', () => {
+  it('sends bounded batch mode and correlation separately from project contents', async () => {
+    const fetch = vi.fn(async () => new Response('0:"{}"\nd:{"finishReason":"stop"}\n'));
+    vi.stubGlobal('fetch', fetch);
+
+    const runId = '8c1e4b17-f6e4-4d7a-9e29-a50174634828';
+    const projectId = 'd63cb19b-9fef-4ae7-8855-293ad3fb2be2';
+    await managedModelRequest(
+      'repair',
+      {
+        task: '修复',
+        files: {},
+        errors: [],
+        runId,
+        attempt: 1,
+        batch: { id: 3, files: [{ path: 'src/App.tsx', instruction: '修改入口' }], recovery: true },
+      },
+      { provider: 'Bailian', model: 'fixture', projectId, signal: new AbortController().signal },
+    );
+
+    const request = JSON.parse((fetch.mock.calls[0] as unknown as [string, RequestInit])[1].body as string);
+    expect(request.managedBatchMode).toBe('recovery');
+    expect(request.managedTrace).toEqual({ projectId, runId, attempt: 1, batch: 3 });
+  });
+  it('distinguishes manifest truncation from an invalid engineering plan', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response('0:"partial"\nd:{"finishReason":"length"}\n')),
+    );
+    await expect(
+      managedModelRequest(
+        'manifest',
+        { task: '修改', files: {}, errors: [] },
+        {
+          provider: 'Bailian',
+          model: 'fixture',
+          signal: new AbortController().signal,
+        },
+      ),
+    ).rejects.toMatchObject({ name: 'OutputLimitError', category: 'output-limit', repairable: false });
+  });
   it('classifies only known planning truncation as a correctable plan validation error', async () => {
     vi.stubGlobal(
       'fetch',
@@ -43,7 +83,7 @@ describe('managed model request', () => {
       ),
     ).rejects.toMatchObject({ name: 'RunError', category: 'model-output', repairable: false });
   });
-  it('keeps full-file recovery mandatory when that response is truncated', async () => {
+  it('reports full-file truncation to the batch scheduler instead of the compile repair loop', async () => {
     vi.stubGlobal(
       'fetch',
       vi.fn(async () => new Response('0:"partial"\nd:{"finishReason":"length"}\n')),
@@ -60,9 +100,9 @@ describe('managed model request', () => {
         { provider: 'Bailian', model: 'fixture', signal: new AbortController().signal },
       ),
     ).rejects.toMatchObject({
-      category: 'model-output',
-      repairable: true,
-      message: expect.stringContaining('不得回到已失败的 edits'),
+      category: 'output-limit',
+      repairable: false,
+      name: 'OutputLimitError',
     });
   });
   it('passes full-file recovery paths to the model with the unchanged source snapshot', async () => {
@@ -141,7 +181,7 @@ describe('managed model request', () => {
       repairable: false,
     });
   });
-  it('makes truncated coding output repairable without returning partial files', async () => {
+  it('classifies truncation without returning partial files or triggering whole-task retries', async () => {
     vi.stubGlobal(
       'fetch',
       vi.fn(async () => new Response('0:"partial"\nd:{"finishReason":"length"}\n')),
@@ -156,7 +196,7 @@ describe('managed model request', () => {
           signal: new AbortController().signal,
         },
       ),
-    ).rejects.toMatchObject({ category: 'model-output', repairable: true });
+    ).rejects.toMatchObject({ category: 'output-limit', repairable: false });
   });
   it('does not retry unknown interrupted streams as if they were token truncation', async () => {
     vi.stubGlobal(

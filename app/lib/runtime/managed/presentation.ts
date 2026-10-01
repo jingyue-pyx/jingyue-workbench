@@ -1,5 +1,8 @@
 import { safeDiagnostic, type RunState } from './protocol';
 import { PREPARATION_FAILURE_MESSAGE } from './failure-notice';
+import type { BatchDiagnostic } from './file-batches';
+import type { ManagedModelInput } from './protocol';
+import { managedTrace } from './request-policy';
 
 /*
  * Compiler/package logs can contain HTTP 429, line numbers or timings. None of
@@ -25,6 +28,18 @@ export function runMessage(
   }
 
   if (state.phase === 'failed') {
+    if (/模型输出达到长度限制/.test(state.detail || '')) {
+      return '单文件输出仍达到长度上限：系统已缩小批次并有限重试，不完整内容没有写入。已完成的候选批次保留在本机，现有源码和预览未替换；可以继续要求拆分大组件后修改。';
+    }
+
+    if (/分批生成达到/.test(state.detail || '')) {
+      return '本次分批生成已达到请求或输出预算，任务安全停止。已完成候选批次保留在本机，现有源码和预览未替换；可以缩小功能范围后继续。';
+    }
+
+    if (/文件批次校验仍未通过|文件清单格式校验失败/.test(state.detail || '')) {
+      return '文件清单或改动批次未通过校验，有限重试仍未成功。本轮候选未覆盖现有源码，可以继续描述需要修改的具体功能。';
+    }
+
     if (/当前源码版本已变化/.test(state.detail || '')) {
       return '源码在任务执行期间已更新，本轮候选没有覆盖最新内容。请基于当前源码继续；无需重新生成项目。';
     }
@@ -114,37 +129,45 @@ export function runtimeEvent(state: RunState) {
   const reason =
     state.phase !== 'failed'
       ? 'none'
-      : /规划格式|技术方案.*格式|清单格式|模块定义|方案问题|方案选项/.test(text)
-        ? 'plan_format'
-        : /额外澄清|重复追问/.test(text)
-          ? 'plan_clarification'
-          : modelQuotaFailure(text)
-            ? 'quota'
-            : /登录/.test(text)
-              ? 'authentication'
-              : /预览.*(?:连接|响应)|preview.*(?:connect|timeout)/i.test(text)
-                ? 'preview_connection'
-                : /浏览器沙箱启动|沙箱文件写入/.test(text)
-                  ? 'sandbox'
-                  : /超时|时间上限|timeout/i.test(text)
-                    ? 'timeout'
-                    : /模型未提供实际改动|模型未提供新的有效改动/.test(text)
-                      ? 'model_no_change'
-                      : /模型输出未完整结束|模型返回格式不完整|模型没有返回可执行|局部修改/.test(text)
-                        ? 'model_output'
-                        : /模型连接中断|模型服务暂时失败|模型生成失败|模型服务没有返回内容/.test(text)
-                          ? 'model_service'
-                          : /依赖安装不完整|安装不完整/.test(text)
-                            ? 'dependency_install'
-                            : /样式依赖缺失/.test(text)
-                              ? 'style'
-                              : /网络|ECONN|ENOTFOUND|registry/i.test(text)
-                                ? 'network'
-                                : /TS\d{4}|类型检查|构建|候选源码语法检查失败|未声明的依赖|compile|build/i.test(text)
-                                  ? 'compile'
-                                  : /沙箱|WebContainer/i.test(text)
-                                    ? 'sandbox'
-                                    : 'other';
+      : /模型输出达到长度限制/.test(text)
+        ? 'output_limit'
+        : /分批生成达到/.test(text)
+          ? 'batch_budget'
+          : /文件批次校验仍未通过|文件清单格式校验失败/.test(text)
+            ? 'model_output'
+            : /规划格式|技术方案.*格式|清单格式|模块定义|方案问题|方案选项/.test(text)
+              ? 'plan_format'
+              : /额外澄清|重复追问/.test(text)
+                ? 'plan_clarification'
+                : modelQuotaFailure(text)
+                  ? 'quota'
+                  : /登录/.test(text)
+                    ? 'authentication'
+                    : /预览.*(?:连接|响应)|preview.*(?:connect|timeout)/i.test(text)
+                      ? 'preview_connection'
+                      : /浏览器沙箱启动|沙箱文件写入/.test(text)
+                        ? 'sandbox'
+                        : /超时|时间上限|timeout/i.test(text)
+                          ? 'timeout'
+                          : /模型未提供实际改动|模型未提供新的有效改动/.test(text)
+                            ? 'model_no_change'
+                            : /模型输出未完整结束|模型返回格式不完整|模型没有返回可执行|局部修改/.test(text)
+                              ? 'model_output'
+                              : /模型连接中断|模型服务暂时失败|模型生成失败|模型服务没有返回内容/.test(text)
+                                ? 'model_service'
+                                : /依赖安装不完整|安装不完整/.test(text)
+                                  ? 'dependency_install'
+                                  : /样式依赖缺失/.test(text)
+                                    ? 'style'
+                                    : /网络|ECONN|ENOTFOUND|registry/i.test(text)
+                                      ? 'network'
+                                      : /TS\d{4}|类型检查|构建|候选源码语法检查失败|未声明的依赖|compile|build/i.test(
+                                            text,
+                                          )
+                                        ? 'compile'
+                                        : /沙箱|WebContainer/i.test(text)
+                                          ? 'sandbox'
+                                          : 'other';
 
   return {
     outcome: state.phase,
@@ -157,13 +180,27 @@ export function runtimeEvent(state: RunState) {
 }
 
 // Best effort: do not block saving. Never send source, chat, credentials or raw logs.
-export async function reportRuntime(state: RunState) {
+export function reportRuntime(state: RunState, projectId?: string) {
+  return reportEvent({ ...runtimeEvent(state), ...managedTrace({ projectId, runId: state.id }) });
+}
+
+export function reportModelBatch(input: ManagedModelInput, code: BatchDiagnostic, projectId?: string) {
+  return reportEvent({
+    outcome: 'retrying',
+    stage: input.attempt ? 'repairing' : 'generating',
+    reason: code,
+    attempt: input.attempt || 0,
+    ...managedTrace({ projectId, runId: input.runId, batch: input.batch?.id }),
+  });
+}
+
+async function reportEvent(event: object) {
   try {
     await fetch('/api/runtime-events', {
       method: 'POST',
       credentials: 'same-origin',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(runtimeEvent(state)),
+      body: JSON.stringify(event),
       signal: AbortSignal.timeout(5000),
     });
   } catch {

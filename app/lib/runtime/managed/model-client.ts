@@ -1,24 +1,17 @@
 import { processDataStream, type Message } from 'ai';
 import {
   PlanValidationError,
+  OutputLimitError,
   RunError,
   safeDiagnostic,
   type ManagedPhase,
-  type SourceFiles,
-  type TaskPlan,
+  type ManagedModelInput,
 } from './protocol';
 import type { ConversationPhase } from './conversation';
 
 export async function managedModelRequest(
   phase: ManagedPhase | ConversationPhase,
-  payload: {
-    task: string;
-    plan?: TaskPlan;
-    files: SourceFiles;
-    errors: string[];
-    fullFilePaths?: string[];
-    sourceRevision?: string;
-  },
+  payload: ManagedModelInput,
   options: {
     model: string;
     provider: string;
@@ -54,6 +47,13 @@ export async function managedModelRequest(
     body: JSON.stringify({
       managedPhase: phase,
       managedProjectId: options.projectId,
+      managedBatchMode: payload.batch ? (payload.batch.recovery ? 'recovery' : 'file') : undefined,
+      managedTrace: {
+        projectId: options.projectId,
+        runId: payload.runId,
+        attempt: payload.attempt,
+        batch: payload.batch?.id,
+      },
       managedPlanFinalization: phase === 'plan' && !!payload.plan?.decisions?.length,
       contextOptimization: false,
       messages: [{ id: crypto.randomUUID(), role: 'user', content }],
@@ -118,11 +118,16 @@ export async function managedModelRequest(
       throw new PlanValidationError(['JSON：方案输出被长度限制截断，请精简各字段并返回完整对象']);
     }
 
+    if (finish === 'length' && ['generate', 'repair', 'manifest'].includes(phase)) {
+      // Only the file scheduler may retry this. Never feed partial JSON into the compiler-repair loop.
+      throw new OutputLimitError();
+    }
+
     throw new RunError(
       payload.fullFilePaths?.length
         ? '模型输出未完整结束，本次候选未写入。fullFilePaths 中的文件仍须返回完整 content，不得回到已失败的 edits；请缩小本轮修改范围，保留当前文件的其它功能，不要省略代码。'
         : '模型输出未完整结束，未执行半成品文件；请缩小本轮修改范围。新文件和小文件返回完整 content；仅对当前源码中较大文件的小改动使用唯一匹配的 search/replace edits，保留现有功能。',
-      finish === 'length' && (phase === 'generate' || phase === 'repair'),
+      false,
       'model-output',
     );
   }

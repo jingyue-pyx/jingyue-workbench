@@ -15,3 +15,22 @@ test('records dependency corruption separately from generated-code failure', () 
   assert.equal(runtimeEventName(data), 'client_runtime_failed_installing_dependency_install_repair_0');
   assert.equal(runtimeEventName({ ...data, log: 'package or source contents' }), null);
 });
+
+test('correlates bounded batch diagnostics without accepting arbitrary user strings', () => {
+  const data = {
+    outcome: 'retrying',
+    stage: 'generating',
+    reason: 'output_limit',
+    attempt: 0,
+    projectId: 'd63cb19b-9fef-4ae7-8855-293ad3fb2be2',
+    runId: '8c1e4b17-f6e4-4d7a-9e29-a50174634828',
+    batch: 2,
+  };
+  assert.match(
+    runtimeEventName(data),
+    /_projectId_d63cb19b-9fef-4ae7-8855-293ad3fb2be2_runId_8c1e4b17-f6e4-4d7a-9e29-a50174634828_batch_2$/,
+  );
+  assert.equal(runtimeEventName({ ...data, runId: 'private token or source' }), null);
+  assert.equal(runtimeEventName({ ...data, batch: 500 }), null);
+  assert.equal(runtimeEventName({ ...data, reason: 'arbitrary text' }), null);
+});

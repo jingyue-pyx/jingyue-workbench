@@ -8,6 +8,7 @@ import {
   ExactEditError,
   safeDiagnostic,
   type ManagedPhase,
+  type ManagedModelInput,
   type RunPhase,
   type RunState,
   type SourceFiles,
@@ -32,18 +33,7 @@ export interface RunAdapter {
     stage: (phase: RunPhase, detail: string) => void,
   ): Promise<void>;
   review?(plan: TaskPlan, signal: AbortSignal): Promise<PlanReviewDecision>;
-  model(
-    phase: ManagedPhase,
-    payload: {
-      task: string;
-      plan?: TaskPlan;
-      files: SourceFiles;
-      errors: string[];
-      fullFilePaths?: string[];
-      sourceRevision?: string;
-    },
-    signal: AbortSignal,
-  ): Promise<string>;
+  model(phase: ManagedPhase, payload: ManagedModelInput, signal: AbortSignal): Promise<string>;
   apply(files: SourceFiles, signal: AbortSignal): Promise<void>;
   verify(files: SourceFiles, signal: AbortSignal, stage: (phase: RunPhase, detail: string) => void): Promise<string>;
   stop(): void;
@@ -152,7 +142,11 @@ export class ManagedRunController {
           assertSameSources(before, this._adapter.capture());
 
           try {
-            const raw = await this._adapter.model('plan', { task, plan: prior, files: before, errors }, signal);
+            const raw = await this._adapter.model(
+              'plan',
+              { task, plan: prior, files: before, errors, runId: this.state.id, attempt: 0 },
+              signal,
+            );
             guard();
             assertSameSources(before, this._adapter.capture());
 
@@ -317,6 +311,8 @@ export class ManagedRunController {
               errors: this.state.errors,
               fullFilePaths: [...fullFilePaths],
               sourceRevision: inputRevision,
+              runId: this.state.id,
+              attempt,
             },
             signal,
           );

@@ -27,6 +27,8 @@ const reasons: Record<string, string> = {
   compile: '生成的代码未通过类型或构建校验',
   style: '页面使用的样式类缺少对应样式支持',
   model_output: '模型没有返回完整、有效的文件改动',
+  output_limit: '单文件输出仍被长度限制截断，分批和有限重试未能完成',
+  batch_budget: '分批生成达到本次请求或输出预算',
   model_no_change: '模型没有提供实际代码改动，待修复问题仍未解决',
   model_service: '模型服务连接或响应失败，本次不完整文件未写入',
   sandbox: '浏览器运行环境未就绪',

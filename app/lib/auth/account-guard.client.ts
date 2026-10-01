@@ -4,7 +4,7 @@ import { currentAccount } from './account-context';
  * A tab keeps the account it booted with. Never silently re-scope a live
  * editor when another tab changes the HttpOnly session cookie.
  */
-export function installAccountGuard() {
+export function installAccountGuard(navigate = (url: string) => window.location.replace(url)) {
   if (typeof window !== 'undefined' && currentAccount) {
     const account = currentAccount;
     const originalFetch = window.fetch.bind(window);
@@ -23,34 +23,11 @@ export function installAccountGuard() {
         root.style.visibility = 'hidden';
       }
 
-      const panel = document.createElement('div');
-      panel.setAttribute('role', 'alert');
-      Object.assign(panel.style, {
-        position: 'fixed',
-        inset: '0',
-        zIndex: '2147483647',
-        display: 'grid',
-        placeContent: 'center',
-        gap: '18px',
-        padding: '30px',
-        background: '#f8f8f3',
-        color: '#244f3c',
-        fontFamily: 'sans-serif',
-      });
-
-      const heading = document.createElement('h2');
-      heading.textContent = '登录已过期或账号已切换';
-
-      const text = document.createElement('p');
-      text.textContent = '当前页面已锁定。本机草稿未删除，请使用原账号重新登录后继续。';
-
-      const link = document.createElement('a');
-      link.href = '/login';
-      link.textContent = '重新打开工作台 →';
-      panel.appendChild(heading);
-      panel.appendChild(text);
-      panel.appendChild(link);
-      document.body.appendChild(panel);
+      /*
+       * Leave account-scoped drafts intact, but never keep editing a stale
+       * account. Replace history so Back does not reopen this locked page.
+       */
+      navigate('/login');
     };
 
     window.fetch = async (input, init) => {
