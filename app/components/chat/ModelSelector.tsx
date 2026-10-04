@@ -192,24 +192,22 @@ export const ModelSelector = ({
       return;
     }
 
-    if (provider && !providerList.some((p) => p.name === provider.name)) {
-      const firstEnabledProvider = providerList[0];
-      setProvider?.(firstEnabledProvider);
+    const selectedProvider = providerList.find((p) => p.name === provider?.name) || providerList[0];
 
-      const firstModel = modelList.find((m) => m.provider === firstEnabledProvider.name);
-
-      if (firstModel) {
-        setModel?.(firstModel.name);
-      }
+    if (provider?.name !== selectedProvider.name) {
+      setProvider?.(selectedProvider);
     }
-  }, [providerList, provider, setProvider, modelList, setModel]);
+
+    if (!modelList.some((entry) => entry.provider === selectedProvider.name && entry.name === model)) {
+      setModel?.(modelList.find((entry) => entry.provider === selectedProvider.name)?.name || '');
+    }
+  }, [providerList, provider, setProvider, modelList, model, setModel]);
 
   if (providerList.length === 0) {
     return (
       <div className="mb-2 p-4 rounded-lg border border-bolt-elements-borderColor bg-bolt-elements-prompt-background text-bolt-elements-textPrimary">
         <p className="text-center">
-          No providers are currently enabled. Please enable at least one provider in the settings to start using the
-          chat.
+          {modelLoading ? '正在读取可用模型…' : '暂无可用模型，请重试加载或联系管理员检查服务端配置。'}
         </p>
       </div>
     );

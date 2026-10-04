@@ -605,13 +605,40 @@ describe('managed task lifecycle', () => {
     vi.mocked(adapter.model)
       .mockReset()
       .mockResolvedValueOnce(plan)
-      .mockResolvedValueOnce(patch('1'))
-      .mockResolvedValueOnce(patch('2'));
-    vi.mocked(adapter.verify).mockRejectedValue(new RunError('同一个错误', true));
+      .mockResolvedValueOnce('{invalid')
+      .mockResolvedValueOnce('{invalid');
 
     const result = await controller.run('待办');
     expect(result.detail).toContain('相同错误');
     expect(adapter.model).toHaveBeenCalledTimes(3);
+  });
+  it('continues automatic repair when the same type diagnostic remains but the candidate changed', async () => {
+    const { controller, adapter, setFiles } = fixture();
+    const original = { ...REACT_VITE_TEMPLATE };
+    setFiles(original);
+    adapter.compileCandidate = vi
+      .fn()
+      .mockRejectedValueOnce(new RunError('TS2322 repeated type error', true, 'compile'))
+      .mockRejectedValueOnce(new RunError('TS2322 repeated type error', true, 'compile'))
+      .mockResolvedValue(undefined);
+    vi.mocked(adapter.model)
+      .mockReset()
+      .mockResolvedValueOnce(plan)
+      .mockResolvedValueOnce(patch('first'))
+      .mockResolvedValueOnce(patch('second'))
+      .mockImplementationOnce(async (phase, payload) => {
+        expect(phase).toBe('repair');
+        expect(payload.files['src/App.tsx']).toContain('second');
+        expect(adapter.capture()).toEqual(original);
+        expect(adapter.apply).not.toHaveBeenCalled();
+
+        return patch('fixed');
+      });
+
+    const result = await controller.run('增加注册表单');
+    expect(result).toMatchObject({ phase: 'succeeded', attempt: 2 });
+    expect(adapter.compileCandidate).toHaveBeenCalledTimes(3);
+    expect(adapter.apply).toHaveBeenCalledOnce();
   });
   it('unsupported plans do not modify or initialize files', async () => {
     const { controller, adapter } = fixture();

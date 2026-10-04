@@ -13,7 +13,7 @@ const modelQuotaFailure = (text: string) =>
 
 // User-facing copy is independent from compiler output and logs.
 export function runMessage(
-  state: Pick<RunState, 'phase'> & Partial<Pick<RunState, 'events' | 'detail' | 'candidatePending'>>,
+  state: Pick<RunState, 'phase'> & Partial<Pick<RunState, 'events' | 'detail' | 'candidatePending' | 'attempt'>>,
 ) {
   if (state.phase === 'succeeded') {
     return '页面预览已就绪，可以继续查看或修改。';
@@ -56,7 +56,15 @@ export function runMessage(
 
     if (state.candidatePending && ['installing', 'typechecking', 'building'].includes(stage || '')) {
       const step = stage === 'installing' ? '依赖安装' : stage === 'typechecking' ? '类型检查' : '构建';
-      return `候选代码未通过${step}，本轮检查与有限恢复尚未完成。当前源码和原预览未被替换，候选草稿保留在本机；可以继续修复。`;
+      const reason = /时间上限|超时/.test(state.detail || '')
+        ? '检查或任务达到时间上限'
+        : /额度|预算|频率/.test(state.detail || '')
+          ? '模型额度或本轮预算已达限制'
+          : /相同错误/.test(state.detail || '')
+            ? '相同源码与错误重复出现，已停止无效重试'
+            : `已自动修复 ${state.attempt || 0} 轮，检查仍未通过`;
+
+      return `候选代码未通过${step}。原因：${reason}。当前源码和原预览未被替换，候选草稿保留在本机；可以继续修复。`;
     }
 
     if (stage === 'installing' && /依赖安装不完整|安装不完整/.test(state.detail || '')) {

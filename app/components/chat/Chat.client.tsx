@@ -282,6 +282,9 @@ export const ChatImpl = memo(
     }, [model, provider, searchParams]);
 
     const { enhancingPrompt, promptEnhanced, enhancePrompt } = usePromptEnhancer();
+    const latestInput = useRef(input);
+    latestInput.current = input;
+
     const { parsedMessages, parseMessages } = useMessageParser();
 
     const TEXTAREA_MAX_HEIGHT = chatStarted ? 400 : 200;
@@ -605,17 +608,28 @@ export const ChatImpl = memo(
             content: parsedMessages[i] || '',
           };
         })}
-        enhancePrompt={() => {
-          enhancePrompt(
-            input,
-            (input) => {
-              setInput(input);
-              scrollTextArea();
-            },
-            model,
-            provider,
-            apiKeys,
-          );
+        enhancePrompt={async () => {
+          try {
+            const enhanced = await enhancePrompt(
+              input,
+              (enhancedInput) => {
+                if (latestInput.current !== input) {
+                  throw new Error('优化期间输入已更新，已保留你的最新内容，请按需重新优化。');
+                }
+
+                setInput(enhancedInput);
+                scrollTextArea();
+              },
+              model,
+              provider,
+            );
+
+            if (enhanced) {
+              toast.success('需求已优化，请检查后再发送。');
+            }
+          } catch (error) {
+            toast.error(error instanceof Error ? error.message : '优化失败，原输入已保留。');
+          }
         }}
         uploadedFiles={uploadedFiles}
         setUploadedFiles={setUploadedFiles}

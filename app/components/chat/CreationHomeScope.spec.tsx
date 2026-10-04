@@ -33,7 +33,11 @@ vi.mock('./SupabaseConnection', () => ({ SupabaseConnection: () => null }));
 vi.mock('~/components/workbench/ExpoQrModal', () => ({ ExpoQrModal: () => null }));
 vi.mock('~/lib/stores/qrCodeStore', () => ({ expoUrlAtom: null }));
 vi.mock('@nanostores/react', () => ({ useStore: () => null }));
-vi.mock('~/lib/api/model-catalog', () => ({ fetchModelCatalog: vi.fn(async () => []) }));
+vi.mock('~/lib/api/model-catalog', () => ({
+  fetchModelCatalog: vi.fn(async () => [
+    { name: 'test-model', label: '测试模型', provider: 'TestProvider', maxTokenAllowed: 8000 },
+  ]),
+}));
 vi.mock('~/lib/hooks', () => ({
   StickToBottom: Object.assign(({ children, className }: any) => <div className={className}>{children}</div>, {
     Content: ({ children }: any) => <div>{children}</div>,
@@ -71,6 +75,9 @@ describe('creation home is scoped to new conversations', () => {
         handleInputChange={input}
         sendMessage={send}
       />,
+    );
+    await waitFor(() =>
+      expect((screen.getByRole('button', { name: '发送需求' }) as HTMLButtonElement).disabled).toBe(false),
     );
     fireEvent.click(screen.getByRole('button', { name: '发送需求' }));
     expect(send).toHaveBeenCalledTimes(1);

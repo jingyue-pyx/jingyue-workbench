@@ -304,3 +304,38 @@ References: [Netlify API](https://open-api.netlify.com/),
   acceptance; local success is not production deployment. Standalone business
   storage, generated backend functions, custom domains and the second hosting
   provider remain outside this static-publishing iteration.
+
+### Acceptance feedback fixes (2026-10-04)
+
+- The provider selector now follows the authenticated server model catalog.
+  Unsupported providers and stale provider/model pairs cannot remain selected.
+  Model settings stay accessible while the catalog loads; stop remains usable.
+- Prompt enhancement sends JSON with the correct content type and commits only
+  a complete successful text response. HTTP errors, quota errors, timeouts and
+  edits made while waiting preserve the user's current input. A real browser
+  request against the configured model returned enhanced text successfully.
+- Repeated-error detection compares both the diagnostic and candidate source
+  revision. Changed code with the same type error can use the remaining repair
+  round; identical failed candidates still stop. The two-repair ceiling,
+  deadlines, quotas and candidate-before-commit checks remain in force.
+  Failure messages distinguish deadline, quota, unchanged-code and exhausted
+  repair cases. The screenshot-only type-error report lacks the original
+  compiler output/session, so that exact generated project is not yet reproduced.
+- The obsolete Supabase management-token entry is absent from the chat UI.
+  This does not remove the separate server-authorized demo-data bridge.
+- Terminals start collapsed and no idle debug shell is created by default.
+  The managed run log remains available; extra browser debug terminals can be
+  closed with their process detached. The UI identifies these as browser
+  sandboxes, not host/server shells. Add/close was checked in the browser.
+- Diff tracks changes to existing text files during the current page session,
+  labels the filter as changed-file search, and drops reverted changes. It is
+  not cross-refresh version history. Saving, filtering and reverting a synthetic
+  file were verified without redeploying the public site.
+- Sidebar selection actions have their own wrapping row. The recycle-bin
+  label no longer compresses into a vertical column; select/unselect was
+  visually checked. No project deletion was performed.
+- Verification: 599 application tests, 114 deployment tests, TypeScript and
+  production build passed. The release credential scan and 74 packaged-server
+  checks also passed with zero actual model/database calls in that check.
+  Local UI checks used only the synthetic publishing fixture. This fix set is
+  on the test branch, not deployed to formal FC.

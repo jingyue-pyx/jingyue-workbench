@@ -416,23 +416,26 @@ export const Menu = () => {
               />
             </div>
           </div>
-          <div className="flex items-center justify-between text-sm px-4 py-2">
-            <div className="font-medium text-gray-600 dark:text-gray-400">
-              {showDeleted ? '云端回收站' : '项目（云端 + 旧本机）'}
+          <div className="flex flex-col gap-2 text-sm px-4 py-2">
+            <div className="flex items-center justify-between gap-2">
+              <div className="min-w-0 font-medium text-bolt-elements-textSecondary" title="包含云端项目与旧本机项目">
+                {showDeleted ? '云端回收站' : '我的项目'}
+              </div>
+              <button
+                className="shrink-0 whitespace-nowrap rounded-md bg-transparent px-2 py-1 text-bolt-elements-textSecondary hover:bg-bolt-elements-item-backgroundActive focus-visible:outline focus-visible:outline-2"
+                onClick={() => {
+                  setShowDeleted(!showDeleted);
+                  setSelectionMode(false);
+                  setSelectedItems([]);
+                }}
+              >
+                {showDeleted ? '返回项目' : '回收站'}
+              </button>
             </div>
-            <button
-              onClick={() => {
-                setShowDeleted(!showDeleted);
-                setSelectionMode(false);
-                setSelectedItems([]);
-              }}
-            >
-              {showDeleted ? '返回项目' : '回收站'}
-            </button>
             {selectionMode && (
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2" aria-label="批量操作">
                 <Button variant="ghost" size="sm" onClick={selectAll}>
-                  {selectedItems.length === filteredList.length ? 'Deselect all' : 'Select all'}
+                  {selectedItems.length === filteredList.length ? '取消全选' : '全选'}
                 </Button>
                 <Button
                   variant="destructive"
@@ -440,7 +443,7 @@ export const Menu = () => {
                   onClick={handleBulkDeleteClick}
                   disabled={selectedItems.length === 0}
                 >
-                  Delete selected
+                  删除所选（{selectedItems.length}）
                 </Button>
               </div>
             )}
@@ -452,7 +455,7 @@ export const Menu = () => {
               </p>
             )}
             <button
-              className="p-2 text-xs"
+              className="bg-transparent rounded-md p-2 text-xs text-bolt-elements-textSecondary hover:bg-bolt-elements-item-backgroundActive"
               onClick={async () => {
                 if (!window.confirm('只清理已经同步的本机云项目缓存，不删除云端项目、旧项目或未同步草稿。继续？')) {
                   return;

@@ -16,6 +16,26 @@ afterEach(() => {
 });
 
 describe('workbench presentation preserves controls', () => {
+  it('reconciles an unsupported saved provider/model pair to the server catalog', async () => {
+    const setProvider = vi.fn();
+    const setModel = vi.fn();
+    const provider = { name: 'Bailian' } as ProviderInfo;
+    render(
+      <ModelSelector
+        provider={{ name: 'Anthropic' } as ProviderInfo}
+        model="claude"
+        providerList={[provider]}
+        modelList={[{ name: 'qwen', label: '百炼', provider: 'Bailian' } as ModelInfo]}
+        setProvider={setProvider}
+        setModel={setModel}
+        apiKeys={{}}
+      />,
+    );
+    await waitFor(() => expect(setProvider).toHaveBeenCalledWith(provider));
+    expect(setModel).toHaveBeenCalledWith('qwen');
+    fireEvent.click(screen.getByRole('combobox', { name: '模型服务商' }));
+    expect(screen.queryByRole('option', { name: 'Anthropic' })).toBeNull();
+  });
   it('labels and dispatches send without submitting an outer form', () => {
     const send = vi.fn();
     const submit = vi.fn((event) => event.preventDefault());

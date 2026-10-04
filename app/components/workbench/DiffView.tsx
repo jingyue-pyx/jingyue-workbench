@@ -643,7 +643,7 @@ export const DiffView = memo(({ fileHistory, setFileHistory }: DiffViewProps) =>
 
       // Normalizar o conteúdo para comparação
       const normalizedCurrentContent = currentContent.replace(/\r\n/g, '\n').trim();
-      const normalizedOriginalContent = (existingHistory?.originalContent || file.content)
+      const normalizedOriginalContent = (existingHistory?.originalContent ?? file.content)
         .replace(/\r\n/g, '\n')
         .trim();
 
@@ -725,7 +725,7 @@ export const DiffView = memo(({ fileHistory, setFileHistory }: DiffViewProps) =>
   const currentContent = currentDocument.value;
 
   const history = fileHistory[selectedFile];
-  const effectiveOriginalContent = history?.originalContent || originalContent;
+  const effectiveOriginalContent = history?.originalContent ?? originalContent;
   const language = getLanguageFromExtension(selectedFile.split('.').pop() || '');
 
   try {

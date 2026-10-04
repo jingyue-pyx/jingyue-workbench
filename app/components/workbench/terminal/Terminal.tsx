@@ -18,12 +18,13 @@ export interface TerminalProps {
   readonly?: boolean;
   id: string;
   onTerminalReady?: (terminal: XTerm) => void;
+  onTerminalDispose?: (terminal: XTerm) => void;
   onTerminalResize?: (cols: number, rows: number) => void;
 }
 
 export const Terminal = memo(
   forwardRef<TerminalRef, TerminalProps>(
-    ({ className, theme, readonly, id, onTerminalReady, onTerminalResize }, ref) => {
+    ({ className, theme, readonly, id, onTerminalReady, onTerminalDispose, onTerminalResize }, ref) => {
       const terminalElementRef = useRef<HTMLDivElement>(null);
       const terminalRef = useRef<XTerm>();
 
@@ -61,6 +62,7 @@ export const Terminal = memo(
 
         return () => {
           resizeObserver.disconnect();
+          onTerminalDispose?.(terminal);
           terminal.dispose();
         };
       }, []);

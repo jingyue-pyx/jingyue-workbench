@@ -278,7 +278,7 @@ export class ManagedRunController {
         }
       }
 
-      let lastError = '';
+      let lastFailure = '';
       let canAcceptNoChange = !pending && !this.state.errors.length;
       const fullFilePaths = new Set<string>();
 
@@ -420,11 +420,14 @@ export class ManagedRunController {
             throw error;
           }
 
-          if (diagnostic === lastError) {
+          const failure = `${diagnostic}\n${await sourceRevision(pending || this._adapter.capture())}`;
+          guard();
+
+          if (failure === lastFailure) {
             throw new RunError('相同错误重复出现且未改善，已保留日志和草稿。\n' + diagnostic);
           }
 
-          lastError = diagnostic;
+          lastFailure = failure;
         }
       }
       throw new RunError('自动修复未通过。');

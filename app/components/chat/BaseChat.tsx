@@ -28,7 +28,6 @@ import { ModelSelector } from '~/components/chat/ModelSelector';
 import { SpeechRecognitionButton } from '~/components/chat/SpeechRecognition';
 import type { ProviderInfo } from '~/types/model';
 import { ScreenshotStateManager } from './ScreenshotStateManager';
-import { toast } from 'react-toastify';
 import type { ActionAlert, SupabaseAlert, DeployAlert } from '~/types/actions';
 import DeployChatAlert from '~/components/deploy/DeployAlert';
 import ChatAlert from './ChatAlert';
@@ -226,7 +225,7 @@ export const BaseChat = React.forwardRef<HTMLDivElement, BaseChatProps>(
       }
 
       return undefined;
-    }, [providerList, provider, modelRetry]);
+    }, [modelRetry]);
 
     const onApiKeysChange = async (providerName: string, apiKey: string) => {
       const newApiKeys = { ...apiKeys, [providerName]: apiKey };
@@ -475,7 +474,9 @@ export const BaseChat = React.forwardRef<HTMLDivElement, BaseChatProps>(
                             modelList={modelList}
                             provider={provider}
                             setProvider={setProvider}
-                            providerList={providerList || (PROVIDER_LIST as ProviderInfo[])}
+                            providerList={(providerList || (PROVIDER_LIST as ProviderInfo[])).filter((item) =>
+                              modelList.some((entry) => entry.provider === item.name),
+                            )}
                             apiKeys={apiKeys}
                             modelLoading={isModelLoading}
                           />
@@ -605,7 +606,10 @@ export const BaseChat = React.forwardRef<HTMLDivElement, BaseChatProps>(
                         <SendButton
                           show={input.length > 0 || isStreaming || uploadedFiles.length > 0}
                           isStreaming={isStreaming}
-                          disabled={!providerList || providerList.length === 0}
+                          disabled={
+                            !isStreaming &&
+                            !modelList.some((item) => item.provider === provider?.name && item.name === model)
+                          }
                           onClick={(event) => {
                             if (isStreaming) {
                               handleStop?.();
@@ -631,12 +635,13 @@ export const BaseChat = React.forwardRef<HTMLDivElement, BaseChatProps>(
                         </IconButton>
                         <IconButton
                           title="Enhance prompt"
-                          disabled={input.length === 0 || enhancingPrompt}
+                          disabled={
+                            input.length === 0 ||
+                            enhancingPrompt ||
+                            !modelList.some((item) => item.provider === provider?.name && item.name === model)
+                          }
                           className={classNames('transition-all', enhancingPrompt ? 'opacity-100' : '')}
-                          onClick={() => {
-                            enhancePrompt?.();
-                            toast.success('Prompt enhanced!');
-                          }}
+                          onClick={() => enhancePrompt?.()}
                         >
                           {enhancingPrompt ? (
                             <div className="i-svg-spinners:90-ring-with-bg text-bolt-elements-loader-progress text-xl animate-spin"></div>
@@ -667,7 +672,6 @@ export const BaseChat = React.forwardRef<HTMLDivElement, BaseChatProps>(
                               setIsHomeModelSettingsCollapsed(!isHomeModelSettingsCollapsed);
                             }
                           }}
-                          disabled={!providerList || providerList.length === 0}
                         >
                           <div className={`i-ph:caret-${modelSettingsCollapsed ? 'right' : 'down'} text-lg`} />
                           {modelSettingsCollapsed ? (

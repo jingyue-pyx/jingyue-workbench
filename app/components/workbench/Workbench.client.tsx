@@ -1,7 +1,8 @@
 import { useStore } from '@nanostores/react';
 import { motion, type HTMLMotionProps, type Variants } from 'framer-motion';
 import { computed } from 'nanostores';
-import { memo, useCallback, useEffect, useState, useMemo } from 'react';
+import { memo, useCallback, useEffect, useState, useMemo, useRef } from 'react';
+import { recordFileChanges, filterFileChanges } from './file-history';
 import { toast } from 'react-toastify';
 import { Popover, Transition } from '@headlessui/react';
 import { diffLines, type Change } from 'diff';
@@ -70,7 +71,7 @@ const workbenchVariants = {
   },
 } satisfies Variants;
 
-const FileModifiedDropdown = memo(
+export const FileModifiedDropdown = memo(
   ({
     fileHistory,
     onSelectFile,
@@ -83,8 +84,8 @@ const FileModifiedDropdown = memo(
     const [searchQuery, setSearchQuery] = useState('');
 
     const filteredFiles = useMemo(() => {
-      return modifiedFiles.filter(([filePath]) => filePath.toLowerCase().includes(searchQuery.toLowerCase()));
-    }, [modifiedFiles, searchQuery]);
+      return filterFileChanges(fileHistory, searchQuery);
+    }, [fileHistory, searchQuery]);
 
     return (
       <div className="flex items-center gap-2">
@@ -92,7 +93,7 @@ const FileModifiedDropdown = memo(
           {({ open }: { open: boolean }) => (
             <>
               <Popover.Button className="flex items-center gap-2 px-3 py-1.5 text-sm rounded-lg bg-bolt-elements-background-depth-2 hover:bg-bolt-elements-background-depth-3 transition-colors text-bolt-elements-item-contentDefault">
-                <span>File Changes</span>
+                <span>本次文件改动</span>
                 {hasChanges && (
                   <span className="w-5 h-5 rounded-full bg-accent-500/20 text-accent-500 text-xs flex items-center justify-center border border-accent-500/30">
                     {modifiedFiles.length}
@@ -113,7 +114,8 @@ const FileModifiedDropdown = memo(
                     <div className="relative mx-2 mb-2">
                       <input
                         type="text"
-                        placeholder="Search files..."
+                        placeholder="筛选已改动文件…"
+                        aria-label="筛选已改动文件"
                         value={searchQuery}
                         onChange={(e) => setSearchQuery(e.target.value)}
                         className="w-full pl-8 pr-3 py-1.5 text-sm rounded-lg bg-bolt-elements-background-depth-1 border border-bolt-elements-borderColor focus:outline-none focus:ring-2 focus:ring-blue-500/50"
@@ -241,10 +243,12 @@ const FileModifiedDropdown = memo(
                             <div className="i-ph:file-dashed" />
                           </div>
                           <p className="text-sm font-medium text-bolt-elements-textPrimary">
-                            {searchQuery ? 'No matching files' : 'No modified files'}
+                            {searchQuery ? '没有匹配的改动文件' : '暂无文件改动记录'}
                           </p>
                           <p className="text-xs text-bolt-elements-textTertiary mt-1">
-                            {searchQuery ? 'Try another search' : 'Changes will appear here as you edit'}
+                            {searchQuery
+                              ? '这里只搜索改动记录；查找全部文件请切换到 Code。'
+                              : '这里比较当前页面内记录的修改，不是云端版本历史；刷新后记录会重置。查找源码请切换到 Code。'}
                           </p>
                         </div>
                       )}
@@ -292,6 +296,13 @@ export const Workbench = memo(
     const currentDocument = useStore(workbenchStore.currentDocument);
     const unsavedFiles = useStore(workbenchStore.unsavedFiles);
     const files = useStore(workbenchStore.files);
+    const previousFiles = useRef(files);
+    useEffect(() => {
+      const previous = previousFiles.current;
+      previousFiles.current = files;
+      setFileHistory((history) => recordFileChanges(previous, files, history));
+    }, [files]);
+
     const selectedView = useStore(workbenchStore.currentView);
 
     const isSmallViewport = useViewport(1024);

@@ -23,12 +23,23 @@ export const TerminalTabs = memo(() => {
   const terminalToggledByShortcut = useRef(false);
 
   const [activeTerminal, setActiveTerminal] = useState(0);
-  const [terminalCount, setTerminalCount] = useState(1);
+  const [terminalIds, setTerminalIds] = useState<number[]>([]);
+  const nextTerminalId = useRef(1);
+  const terminalCount = terminalIds.length;
 
   const addTerminal = () => {
     if (terminalCount < MAX_TERMINALS) {
-      setTerminalCount(terminalCount + 1);
-      setActiveTerminal(terminalCount);
+      const id = nextTerminalId.current++;
+      setTerminalIds((ids) => [...ids, id]);
+      setActiveTerminal(id);
+    }
+  };
+
+  const closeTerminal = (id: number) => {
+    setTerminalIds((ids) => ids.filter((value) => value !== id));
+
+    if (activeTerminal === id) {
+      setActiveTerminal(0);
     }
   };
 
@@ -86,8 +97,8 @@ export const TerminalTabs = memo(() => {
     >
       <div className="h-full">
         <div className="bg-bolt-elements-terminals-background h-full flex flex-col">
-          <div className="flex items-center bg-bolt-elements-background-depth-2 border-y border-bolt-elements-borderColor gap-1.5 min-h-[34px] p-2">
-            {Array.from({ length: terminalCount + 1 }, (_, index) => {
+          <div className="flex items-center overflow-x-auto bg-bolt-elements-background-depth-2 border-y border-bolt-elements-borderColor gap-1.5 min-h-[34px] p-2">
+            {[0, ...terminalIds].map((index) => {
               const isActive = activeTerminal === index;
 
               return (
@@ -107,7 +118,7 @@ export const TerminalTabs = memo(() => {
                       onClick={() => setActiveTerminal(index)}
                     >
                       <div className="i-ph:terminal-window-duotone text-lg" />
-                      鲸月终端
+                      运行日志
                     </button>
                   ) : (
                     <React.Fragment>
@@ -124,23 +135,34 @@ export const TerminalTabs = memo(() => {
                         onClick={() => setActiveTerminal(index)}
                       >
                         <div className="i-ph:terminal-window-duotone text-lg" />
-                        Terminal {terminalCount > 1 && index}
+                        终端 {index}
                       </button>
+                      <IconButton
+                        icon="i-ph:x"
+                        title={`关闭终端 ${index}`}
+                        size="sm"
+                        onClick={() => closeTerminal(index)}
+                      />
                     </React.Fragment>
                   )}
                 </React.Fragment>
               );
             })}
-            {terminalCount < MAX_TERMINALS && <IconButton icon="i-ph:plus" size="md" onClick={addTerminal} />}
+            {terminalCount < MAX_TERMINALS && (
+              <IconButton icon="i-ph:plus" title="新建浏览器终端" size="md" onClick={addTerminal} />
+            )}
             <IconButton
               className="ml-auto"
               icon="i-ph:caret-down"
-              title="Close"
+              title="收起终端"
               size="md"
               onClick={() => workbenchStore.toggleTerminal(false)}
             />
           </div>
-          {Array.from({ length: terminalCount + 1 }, (_, index) => {
+          <p className="px-3 py-1 text-xs text-bolt-elements-textSecondary">
+            浏览器沙箱内的运行日志与调试工具，不是服务器终端。请勿在此输入密钥。
+          </p>
+          {[0, ...terminalIds].map((index) => {
             const isActive = activeTerminal === index;
 
             logger.debug(`Starting jingyue terminal [${index}]`);
@@ -154,7 +176,7 @@ export const TerminalTabs = memo(() => {
                     hidden: !isActive,
                   })}
                   ref={(ref) => {
-                    terminalRefs.current.push(ref);
+                    terminalRefs.current[index] = ref;
                   }}
                   onTerminalReady={(terminal) => workbenchStore.attachBoltTerminal(terminal)}
                   onTerminalResize={(cols, rows) => workbenchStore.onTerminalResize(cols, rows)}
@@ -170,9 +192,10 @@ export const TerminalTabs = memo(() => {
                     hidden: !isActive,
                   })}
                   ref={(ref) => {
-                    terminalRefs.current.push(ref);
+                    terminalRefs.current[index] = ref;
                   }}
                   onTerminalReady={(terminal) => workbenchStore.attachTerminal(terminal)}
+                  onTerminalDispose={(terminal) => workbenchStore.detachTerminal(terminal)}
                   onTerminalResize={(cols, rows) => workbenchStore.onTerminalResize(cols, rows)}
                   theme={theme}
                 />

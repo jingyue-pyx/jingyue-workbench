@@ -7,9 +7,10 @@ import { coloredText } from '~/utils/terminal';
 export class TerminalStore {
   #webcontainer: Promise<WebContainer>;
   #terminals: Array<{ terminal: ITerminal; process: WebContainerProcess }> = [];
+  #detached = new WeakSet<ITerminal>();
   #boltTerminal = newBoltShellProcess();
 
-  showTerminal: WritableAtom<boolean> = import.meta.hot?.data.showTerminal ?? atom(true);
+  showTerminal: WritableAtom<boolean> = import.meta.hot?.data.showTerminal ?? atom(false);
 
   constructor(webcontainerPromise: Promise<WebContainer>) {
     this.#webcontainer = webcontainerPromise;
@@ -38,6 +39,12 @@ export class TerminalStore {
   async attachTerminal(terminal: ITerminal) {
     try {
       const shellProcess = await newShellProcess(await this.#webcontainer, terminal);
+
+      if (this.#detached.has(terminal)) {
+        shellProcess.kill();
+        return;
+      }
+
       this.#terminals.push({ terminal, process: shellProcess });
     } catch (error: any) {
       terminal.write(coloredText.red('Failed to spawn shell\n\n') + error.message);
@@ -49,5 +56,13 @@ export class TerminalStore {
     for (const { process } of this.#terminals) {
       process.resize({ cols, rows });
     }
+  }
+
+  detachTerminal(terminal: ITerminal) {
+    this.#detached.add(terminal);
+
+    const attached = this.#terminals.find((entry) => entry.terminal === terminal);
+    attached?.process.kill();
+    this.#terminals = this.#terminals.filter((entry) => entry.terminal !== terminal);
   }
 }
