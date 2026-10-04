@@ -9,6 +9,7 @@ import {
   requestsDesignReview,
   requestsExplicitRepair,
   conversationPrompt,
+  requestsExplicitCreation,
 } from './conversation';
 import type { RunState } from './protocol';
 
@@ -23,6 +24,28 @@ const history: Message[] = [
 ];
 const options = (request = vi.fn()) => ({ history, signal: new AbortController().signal, request });
 describe('conversation intent boundary', () => {
+  it.each([
+    '帮我创建一个登入合注册的页面要求注册的账号能够实际存储到数据库里面下一次登入不需要再次注册可以直接登入',
+    '帮我生成一个营销页面',
+    '创建一个不需要登录的产品展示页',
+  ])('routes a new creation without asking for non-existent source: %s', async (task) => {
+    const opts = { ...options(), history: [], hasSources: false };
+    await expect(routeConversation(task, opts)).resolves.toEqual({ task, reviewPlan: false });
+    expect(opts.request).not.toHaveBeenCalled();
+  });
+  it.each([
+    '帮我创建一个登录页可以吗？',
+    '帮我创建是什么意思',
+    '如果帮我创建一个页面会怎样',
+    '“帮我创建一个页面”是什么意思',
+    '帮我创建一个登录页，但先不要动手',
+    '帮我创建一个登录页，不需要写代码',
+    '为什么创建失败',
+    '生成的页面为什么这么丑',
+    '创建失败了',
+  ])('does not treat quoted, deferred or hypothetical creation as approval: %s', (task) => {
+    expect(requestsExplicitCreation(task)).toBe(false);
+  });
   it.each(['为什么点击体验demo之后就没有对应的功能页面了', '为什么按钮不显示', '为什么生成失败'])(
     'inspects current files rather than short-circuiting to an old outcome: %s',
     async (task) => {
@@ -211,7 +234,7 @@ describe('conversation intent boundary', () => {
       ),
       signal: abort.signal,
     };
-    await expect(routeConversation('生成一个页面', opts)).rejects.toThrow();
+    await expect(routeConversation('把这个页面完善一下', opts)).rejects.toThrow();
   });
   it('persists finite metadata and strips raw logs', () => {
     const state = {

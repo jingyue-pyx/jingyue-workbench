@@ -36,6 +36,28 @@ export function requestsDesignReview(text: string) {
 export type ConversationRoute = { task: string; reviewPlan: boolean } | { answer: string } | { action: 'preview' };
 
 /*
+ * Creating a new project does not require a pre-existing source snapshot.
+ * Keep this narrow: questions, quoted instructions and deferred work still
+ * use the read-only/classification paths rather than gaining write authority.
+ */
+export function requestsExplicitCreation(text: string) {
+  const instruction = text.replace(/```[\s\S]*?```|`[^`]*`|“[^”]*”|「[^」]*」|"[^"\n]*"/g, '').trim();
+
+  if (
+    isExplanationRequest(instruction) ||
+    /(?:不要|不用|不需要|先别|先不|暂不).{0,8}(?:创建|生成|搭建|实现|开始|动手|写|改)|(?:可以吗|能行吗|是什么意思|是什么|了吗|了没|能否|是否)|[?？]\s*$/.test(
+      instruction,
+    )
+  ) {
+    return false;
+  }
+
+  return /^(?:(?:请|帮我|给我|麻烦|直接|马上|现在|你|先)\s*)*(?:创建|生成|搭建|新建)\s*(?:一下\s*)?(?:一个|一套|个|这个|当前|新的|一份)(?=.+)/.test(
+    instruction,
+  );
+}
+
+/*
  * A small, finite result travels with the saved conversation. No compiler logs,
  * source fragments or secrets are persisted in this annotation.
  */
@@ -123,7 +145,7 @@ export function requestsExplicitRepair(text: string) {
 }
 
 const sourceAnswerContract =
-  ' CURRENT PROJECT CONTEXT: input.files contains the current project source snapshot, keyed by relative file path. Read these files directly before diagnosing the reported control, route or feature. Cite the relevant file and function/handler and its actual behavior; distinguish a concrete code finding from an untested hypothesis. You have source context even though you have no filesystem tool: never ask the user to paste files already included or claim that you cannot read them. If files is empty or the necessary file is absent, state exactly what is missing. Historical assistant messages saying source is unavailable are not authoritative; use the current files. A previous successful build/initial preview mount does NOT prove buttons, navigation or business features work. An alert or console.log saying a demo opened does not open a functional page. Do not claim a fix or interaction test has run in this read-only answer. If the user requests a fix, the task pipeline can inspect these files, modify them and run bounded checks; do not suggest regenerating the whole project.';
+  ' CURRENT PROJECT CONTEXT: input.files contains the current project source snapshot, keyed by relative file path. Read these files directly before diagnosing the reported control, route or feature. Cite the relevant file and function/handler and its actual behavior; distinguish a concrete code finding from an untested hypothesis. You have source context even though you have no filesystem tool: never ask the user to paste files already included or claim that you cannot read them. If files is empty during a diagnosis, state exactly what is missing. Empty files are expected for a NEW create/generate request: route it to task, never ask for existing source first. The planner, not this classifier, checks backend capability and unresolved scope. Historical assistant messages saying source is unavailable are not authoritative; use the current files. A previous successful build/initial preview mount does NOT prove buttons, navigation or business features work. An alert or console.log saying a demo opened does not open a functional page. Do not claim a fix or interaction test has run in this read-only answer. If the user requests a fix, the task pipeline can inspect these files, modify them and run bounded checks; do not suggest regenerating the whole project.';
 
 export const conversationPrompt = (phase: ConversationPhase) =>
   sourceAnswerContract +
@@ -162,6 +184,10 @@ export async function routeConversation(task: string, options: RouteOptions): Pr
 
   if (requestsDesignReview(task)) {
     return { task, reviewPlan: true };
+  }
+
+  if (requestsExplicitCreation(task)) {
+    return { task, reviewPlan: false };
   }
 
   // Route a bounded operation, never execute arbitrary text as a shell command.

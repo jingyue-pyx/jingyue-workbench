@@ -20,6 +20,7 @@ import { validateImports } from './dependencies';
 import { validateStyles } from './styles';
 import { assertSameSources, sourceRevision, sourceSnapshot } from './source-revision';
 import { validateCandidate } from './preflight';
+import { enforceTaskCapabilities } from './capabilities';
 
 export interface RunAdapter {
   capture(): SourceFiles;
@@ -150,7 +151,7 @@ export class ManagedRunController {
             guard();
             assertSameSources(before, this._adapter.capture());
 
-            return parsePlan(raw, { finalizing: !!prior?.decisions?.length });
+            return enforceTaskCapabilities(task, parsePlan(raw, { finalizing: !!prior?.decisions?.length }));
           } catch (error) {
             guard();
             assertSameSources(before, this._adapter.capture());
@@ -173,6 +174,17 @@ export class ManagedRunController {
       guard();
       assertSameSources(before, this._adapter.capture());
       this.state = { ...this.state, plan };
+
+      const requireSupportedPlan = () => {
+        if (!plan.supported && !plan.questions.length) {
+          throw new RunError(
+            `当前能力不支持：${plan.reason || '此任务超出当前浏览器前端运行范围。'}`,
+            false,
+            'capability',
+          );
+        }
+      };
+      requireSupportedPlan();
 
       let reviewDuration = 0;
       const review = async () => {
@@ -210,6 +222,8 @@ export class ManagedRunController {
          * task. Each changed plan needs a fresh approval before any file write.
          */
         for (;;) {
+          requireSupportedPlan();
+
           const decision = await review();
 
           if (decision.kind === 'confirm' && !plan.questions.length) {
@@ -248,7 +262,11 @@ export class ManagedRunController {
       }
 
       if (!plan.supported) {
-        throw new RunError(plan.reason || '此任务超出当前浏览器前端运行范围。');
+        throw new RunError(
+          `当前能力不支持：${plan.reason || '此任务超出当前浏览器前端运行范围。'}`,
+          false,
+          'capability',
+        );
       }
 
       await this._adapter.checkpoint(before);

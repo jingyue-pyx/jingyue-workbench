@@ -28,6 +28,10 @@ export function runMessage(
   }
 
   if (state.phase === 'failed') {
+    if ((state.detail || '').startsWith('当前能力不支持：')) {
+      return `${safeDiagnostic(state.detail || '').slice(0, 700)}\n\n尚未生成源码或执行编译，这不是代码编译失败。可以接入所需后端能力后继续，或明确提出仅做前端原型。`;
+    }
+
     if ((state.detail || '').startsWith('OpenCode ')) {
       return `${safeDiagnostic(state.detail || '').slice(0, 500)}\n\n当前源码与预览保留；可继续说明要修改的功能，或在执行环境恢复后重试。`;
     }
@@ -141,45 +145,47 @@ export function runtimeEvent(state: RunState) {
   const reason =
     state.phase !== 'failed'
       ? 'none'
-      : /模型输出达到长度限制/.test(text)
-        ? 'output_limit'
-        : /分批生成达到/.test(text)
-          ? 'batch_budget'
-          : /文件批次校验仍未通过|文件清单格式校验失败/.test(text)
-            ? 'model_output'
-            : /规划格式|技术方案.*格式|清单格式|模块定义|方案问题|方案选项/.test(text)
-              ? 'plan_format'
-              : /额外澄清|重复追问/.test(text)
-                ? 'plan_clarification'
-                : modelQuotaFailure(text)
-                  ? 'quota'
-                  : /登录/.test(text)
-                    ? 'authentication'
-                    : /预览.*(?:连接|响应)|preview.*(?:connect|timeout)/i.test(text)
-                      ? 'preview_connection'
-                      : /浏览器沙箱启动|沙箱文件写入/.test(text)
-                        ? 'sandbox'
-                        : /超时|时间上限|timeout/i.test(text)
-                          ? 'timeout'
-                          : /模型未提供实际改动|模型未提供新的有效改动/.test(text)
-                            ? 'model_no_change'
-                            : /模型输出未完整结束|模型返回格式不完整|模型没有返回可执行|局部修改/.test(text)
-                              ? 'model_output'
-                              : /模型连接中断|模型服务暂时失败|模型生成失败|模型服务没有返回内容/.test(text)
-                                ? 'model_service'
-                                : /依赖安装不完整|安装不完整/.test(text)
-                                  ? 'dependency_install'
-                                  : /样式依赖缺失/.test(text)
-                                    ? 'style'
-                                    : /网络|ECONN|ENOTFOUND|registry/i.test(text)
-                                      ? 'network'
-                                      : /TS\d{4}|类型检查|构建|候选源码语法检查失败|未声明的依赖|compile|build/i.test(
-                                            text,
-                                          )
-                                        ? 'compile'
-                                        : /沙箱|WebContainer/i.test(text)
-                                          ? 'sandbox'
-                                          : 'other';
+      : text.startsWith('当前能力不支持：')
+        ? 'capability'
+        : /模型输出达到长度限制/.test(text)
+          ? 'output_limit'
+          : /分批生成达到/.test(text)
+            ? 'batch_budget'
+            : /文件批次校验仍未通过|文件清单格式校验失败/.test(text)
+              ? 'model_output'
+              : /规划格式|技术方案.*格式|清单格式|模块定义|方案问题|方案选项/.test(text)
+                ? 'plan_format'
+                : /额外澄清|重复追问/.test(text)
+                  ? 'plan_clarification'
+                  : modelQuotaFailure(text)
+                    ? 'quota'
+                    : /登录/.test(text)
+                      ? 'authentication'
+                      : /预览.*(?:连接|响应)|preview.*(?:connect|timeout)/i.test(text)
+                        ? 'preview_connection'
+                        : /浏览器沙箱启动|沙箱文件写入/.test(text)
+                          ? 'sandbox'
+                          : /超时|时间上限|timeout/i.test(text)
+                            ? 'timeout'
+                            : /模型未提供实际改动|模型未提供新的有效改动/.test(text)
+                              ? 'model_no_change'
+                              : /模型输出未完整结束|模型返回格式不完整|模型没有返回可执行|局部修改/.test(text)
+                                ? 'model_output'
+                                : /模型连接中断|模型服务暂时失败|模型生成失败|模型服务没有返回内容/.test(text)
+                                  ? 'model_service'
+                                  : /依赖安装不完整|安装不完整/.test(text)
+                                    ? 'dependency_install'
+                                    : /样式依赖缺失/.test(text)
+                                      ? 'style'
+                                      : /网络|ECONN|ENOTFOUND|registry/i.test(text)
+                                        ? 'network'
+                                        : /TS\d{4}|类型检查|构建|候选源码语法检查失败|未声明的依赖|compile|build/i.test(
+                                              text,
+                                            )
+                                          ? 'compile'
+                                          : /沙箱|WebContainer/i.test(text)
+                                            ? 'sandbox'
+                                            : 'other';
 
   return {
     outcome: state.phase,

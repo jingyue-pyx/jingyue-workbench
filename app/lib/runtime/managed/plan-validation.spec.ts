@@ -115,6 +115,32 @@ const patch = JSON.stringify({
 });
 
 describe('bounded plan correction before writing', () => {
+  it('rejects unsupported real app auth before review, generation, checks or source writes', async () => {
+    const { adapter, controller } = fixture();
+    adapter.review = vi.fn();
+    vi.mocked(adapter.model).mockResolvedValue(validText);
+    await controller.run(
+      '帮我创建一个登入合注册的页面要求注册的账号能够实际存储到数据库里面下一次登入不需要再次注册可以直接登入',
+    );
+    expect(controller.state.phase).toBe('failed');
+    expect(controller.state.detail).toContain('真实账号认证尚未接入');
+    expect(adapter.model).toHaveBeenCalledTimes(1);
+    expect(adapter.review).not.toHaveBeenCalled();
+    expect(adapter.apply).not.toHaveBeenCalled();
+    expect(adapter.verify).not.toHaveBeenCalled();
+  });
+  it('ends an unsupported refined plan rather than waiting on a disabled confirmation', async () => {
+    const { adapter, controller } = fixture();
+    adapter.review = vi.fn().mockResolvedValue({ kind: 'confirm', answers: { layout: 'a' } });
+    vi.mocked(adapter.model)
+      .mockResolvedValueOnce(JSON.stringify({ ...valid, questions: [question] }))
+      .mockResolvedValueOnce(JSON.stringify({ ...valid, supported: false, backendMode: 'required' }));
+    await controller.run('制作采购管理页面', { reviewPlan: false });
+    expect(controller.state.phase).toBe('failed');
+    expect(controller.state.detail).toContain('当前能力不支持');
+    expect(adapter.review).toHaveBeenCalledTimes(1);
+    expect(adapter.apply).not.toHaveBeenCalled();
+  });
   it('corrects once with field feedback, then still requires approval and normal verification', async () => {
     const { adapter, controller, publish } = fixture();
     vi.mocked(adapter.model)

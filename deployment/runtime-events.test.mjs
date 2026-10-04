@@ -1,6 +1,11 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { runtimeEventName } from './runtime-events.mjs';
+test('records unsupported capabilities without leaking the model plan', () => {
+  const data = { outcome: 'failed', stage: 'planning', reason: 'capability', attempt: 0 };
+  assert.equal(runtimeEventName(data), 'client_runtime_failed_planning_capability_repair_0');
+  assert.equal(runtimeEventName({ ...data, plan: 'private user requirement' }), null);
+});
 test('records no-change separately without accepting raw model content', () => {
   const data = { outcome: 'unchanged', stage: 'generating', reason: 'none', attempt: 0 };
   assert.equal(runtimeEventName(data), 'client_runtime_unchanged_generating_none_repair_0');

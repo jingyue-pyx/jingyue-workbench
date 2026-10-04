@@ -647,7 +647,7 @@ describe('managed task lifecycle', () => {
       .mockResolvedValue(
         JSON.stringify({ goal: '支付系统', steps: ['需要后端'], supported: false, reason: '需要独立后端' }),
       );
-    expect((await controller.run('支付系统')).detail).toBe('需要独立后端');
+    expect((await controller.run('支付系统')).detail).toBe('当前能力不支持：需要独立后端');
     expect(adapter.apply).not.toHaveBeenCalled();
   });
   it('never overwrites an unsupported existing project', async () => {

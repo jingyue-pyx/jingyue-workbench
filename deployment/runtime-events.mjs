@@ -23,6 +23,7 @@ export function runtimeEventName(data) {
   if (
     ![
       'none',
+      'capability',
       'plan_format',
       'plan_clarification',
       'quota',

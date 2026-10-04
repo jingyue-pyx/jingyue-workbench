@@ -339,3 +339,38 @@ References: [Netlify API](https://open-api.netlify.com/),
   checks also passed with zero actual model/database calls in that check.
   Local UI checks used only the synthetic publishing fixture. This fix set is
   on the test branch, not deployed to formal FC.
+
+### Original-query acceptance follow-up (2026-10-04)
+
+- Replayed the user's original request for a login/registration page with
+  accounts actually stored in a database and reusable on the next login.
+  Tests used separate local projects, the configured Bailian model and the
+  loopback acceptance server; no original project or public site was changed.
+- The first real run incorrectly answered that an empty new project needed
+  existing source. Explicit new-project requests now enter the task pipeline;
+  quoted, negated, deferred requests and diagnostic questions do not gain write
+  authority from matching a creation keyword. The classifier contract also
+  distinguishes empty new-project context from missing diagnostic source.
+- The next real run asked whether localStorage simulation was acceptable.
+  Selecting **real backend required** still produced a simulated-auth plan
+  with an enabled confirmation button. The current bounded demo JSON storage
+  is not an application authentication service. A deterministic capability
+  check now rejects this unsupported real-auth requirement before generation,
+  removes the misleading simulation title, and does not accept a model's
+  `supported=true` as proof that a backend exists.
+- Unsupported plans without actionable questions terminate with an explicit
+  capability explanation rather than waiting at a disabled confirmation.
+  Runtime diagnostics distinguish this from compilation failure or an expired
+  workbench login; telemetry still uses finite labels, not raw model content.
+- The original query is **not a passed end-to-end feature acceptance**: real
+  generated-app registration, credential verification and sessions still need
+  a separately provisioned authentication integration. Existing workbench
+  account authentication is unchanged. No simulated credential database was
+  approved or generated, and the screenshot's original TypeScript error was
+  not reproduced by these new runs.
+- Regression: 622 application tests, 115 deployment tests, TypeScript and
+  production build passed. Release secret scan and 74 packaged-server checks
+  passed without real model/database calls in those package checks. The title
+  correction was additionally covered by 193 targeted tests. This is a local
+  acceptance fix, not a production rollout or a claim of stable generation for
+  all requests.

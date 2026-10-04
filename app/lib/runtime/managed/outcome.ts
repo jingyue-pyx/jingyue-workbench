@@ -16,6 +16,7 @@ const stages: Record<string, string> = {
   idle: '准备',
 };
 const reasons: Record<string, string> = {
+  capability: '需求所需的后端能力尚未接入，尚未执行代码生成或编译',
   plan_format: '模型返回的方案格式不完整',
   plan_clarification: '方案出现重复追问',
   quota: '模型额度或频率限制已触发',

@@ -15,6 +15,12 @@ const failed: RunState = {
 };
 afterEach(() => vi.unstubAllGlobals());
 describe('runtime presentation and diagnostics', () => {
+  it('distinguishes a missing backend capability from login expiry or compile failure', () => {
+    const state = { ...failed, detail: '当前能力不支持：真实账号登录认证尚未接入。' };
+    expect(runMessage(state)).toContain('真实账号登录认证尚未接入');
+    expect(runMessage(state)).toContain('尚未生成源码或执行编译');
+    expect(runtimeEvent(state).reason).toBe('capability');
+  });
   it('keeps the bounded OpenCode failure reason instead of a generic preparation failure', () => {
     const message = runMessage({ ...failed, detail: 'OpenCode 本轮已达到调用预算，候选未写入。' });
     expect(message).toContain('调用预算');
