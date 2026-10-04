@@ -22,6 +22,16 @@ const messages: Message[] = [
 ];
 
 describe('read-only progressive project loading', () => {
+  it('labels optimistic history as a local copy and never claims it is the latest cloud version', () => {
+    render(<ProjectLoadingView messages={messages} cached onRetry={vi.fn()} />);
+    expect(screen.getByRole('status').textContent).toContain('已显示本机历史，正在同步最新内容');
+    expect(screen.getByText('做一个采购管理页面')).toBeTruthy();
+    expect(screen.getByLabelText('代码与预览恢复').textContent).toContain('正在同步项目');
+    expect(document.body.textContent).not.toContain('云端已保存');
+    expect(screen.queryByRole('textbox')).toBeNull();
+    expect(mocks.artifact).not.toHaveBeenCalled();
+  });
+
   it('explains the stages without guessing that the database is asleep', () => {
     render(<ProjectLoadingView onRetry={vi.fn()} />);
     expect(screen.getByRole('status').textContent).toContain('正在恢复会话');

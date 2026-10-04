@@ -48,6 +48,54 @@ beforeEach(() => {
 });
 
 describe('cloud project repository', () => {
+  it('publishes scoped cached history immediately without skipping the authoritative remote read', async () => {
+    const cached: CachedProject = { ...ack(), createdAt: '', document: doc('cached'), state: 'cloud' };
+    await cache.put(cached);
+
+    let finish!: (response: Response) => void;
+    fetcher.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finish = resolve;
+        }),
+    );
+
+    const onCached = vi.fn();
+    const loading = repository.load(id, false, onCached);
+    await vi.waitFor(() => expect(fetcher).toHaveBeenCalledOnce());
+    expect(onCached).toHaveBeenCalledWith(cached);
+    expect(data.get(id)?.document.title).toBe('cached');
+    finish(response({ ...ack(id, 2), createdAt: '', document: doc('latest') }));
+    expect((await loading).document.title).toBe('latest');
+    expect(data.get(id)?.revision).toBe(2);
+  });
+
+  it.each([401, 403, 404, 409])('does not authorize a cached project after a %s server response', async (status) => {
+    const cached: CachedProject = { ...ack(), createdAt: '', document: doc(), state: 'cloud' };
+    await cache.put(cached);
+    fetcher.mockResolvedValueOnce(response({ error: { code: 'DENIED' } }, status));
+
+    const onCached = vi.fn();
+    await expect(repository.load(id, false, onCached)).rejects.toMatchObject({ status });
+    expect(onCached).toHaveBeenCalledOnce();
+    expect(data.get(id)).toEqual(cached);
+  });
+
+  it('never publishes cached content during explicit cloud replacement or for deleted projects', async () => {
+    const cached: CachedProject = { ...ack(), createdAt: '', document: doc(), state: 'cloud' };
+    await cache.put(cached);
+
+    const onCached = vi.fn();
+    fetcher.mockResolvedValueOnce(response({ ...ack(), createdAt: '', document: doc('latest') }));
+    await repository.load(id, true, onCached);
+    expect(onCached).not.toHaveBeenCalled();
+
+    const deletedId = 'e7a7b035-0fbf-4320-a11a-0b9eb0570f9a';
+    await cache.put({ ...cached, projectId: deletedId, deletedAt: 'today', state: 'deleted' });
+    await repository.load(deletedId, false, onCached);
+    expect(onCached).not.toHaveBeenCalled();
+  });
+
   it('keeps a new UUID project locally before acknowledgement, then marks cloud only after ack', async () => {
     let release!: (value: Response) => void;
     fetcher.mockImplementation(

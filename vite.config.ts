@@ -20,8 +20,8 @@ const getGitInfo = () => {
       commitTime: execSync('git log -1 --format=%cd').toString().trim(),
       author: execSync('git log -1 --format=%an').toString().trim(),
       email: execSync('git log -1 --format=%ae').toString().trim(),
-      remoteUrl: execSync('git config --get remote.origin.url').toString().trim(),
-      repoName: execSync('git config --get remote.origin.url')
+      remoteUrl: execSync('git config --get remote.jingyue.url').toString().trim(),
+      repoName: execSync('git config --get remote.jingyue.url')
         .toString()
         .trim()
         .replace(/^.*github.com[:/]/, '')
@@ -57,8 +57,8 @@ const getPackageJson = () => {
     };
   } catch {
     return {
-      name: 'bolt.diy',
-      description: 'A DIY LLM interface',
+      name: 'jingyue',
+      description: '鲸月 · AI 网页创作工作台',
       license: 'MIT',
       dependencies: {},
       devDependencies: {},

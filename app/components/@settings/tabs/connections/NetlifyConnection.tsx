@@ -1,4 +1,4 @@
-import { accountStorage } from '~/lib/auth/account-context';
+import { accountStorage, currentAccount } from '~/lib/auth/account-context';
 import React, { useState, useEffect } from 'react';
 import { toast } from 'react-toastify';
 import { classNames } from '~/utils/classNames';
@@ -43,6 +43,24 @@ interface SiteAction {
 }
 
 export default function NetlifyConnection() {
+  if (currentAccount) {
+    return (
+      <section className="rounded-xl border border-bolt-elements-borderColor p-5 space-y-2">
+        <h3 className="font-medium text-bolt-elements-textPrimary">Netlify 网站发布</h3>
+        <p className="text-sm text-bolt-elements-textSecondary">
+          请在项目右上角选择“发布网站”，通过 Netlify 官方页面授权。无需填写个人令牌，授权凭据只由鲸月服务端保存。
+        </p>
+        <p className="text-sm text-bolt-elements-textSecondary">
+          旧版浏览器令牌连接器在账号模式下不再启用；网站不会自动迁移或删除。
+        </p>
+      </section>
+    );
+  }
+
+  return <LegacyNetlifyConnection />;
+}
+
+function LegacyNetlifyConnection() {
   const connection = useStore(netlifyConnection);
   const [tokenInput, setTokenInput] = useState('');
   const [fetchingStats, setFetchingStats] = useState(false);

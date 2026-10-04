@@ -2,7 +2,7 @@ import { AccountError, readSession, sessionCookie } from './accounts.mjs';
 import { accountPage } from './account-pages.mjs';
 
 export async function accountRequest({ req, res, pathname, config, store, headers, send }) {
-  const token = readSession(req.headers.cookie, config.localTest);
+  const token = readSession(req.headers.cookie, config.localTest, config.localCookieNamespace);
   const authRoute = pathname.startsWith('/api/auth/');
   if (!store) throw new AccountError(503, 'AUTH_UNAVAILABLE', '账号服务暂不可用，请稍后重试。');
   const user = await store.authenticate(token);
@@ -67,7 +67,11 @@ export async function accountRequest({ req, res, pathname, config, store, header
     if (action === 'login' || action === 'register') {
       if (user) throw new AccountError(409, 'ALREADY_SIGNED_IN', '请先退出当前账号再切换。');
       const result = await store[action](data, req.socket.remoteAddress);
-      send(200, { user: result.user }, { 'Set-Cookie': sessionCookie(result.token, config.localTest) });
+      send(
+        200,
+        { user: result.user },
+        { 'Set-Cookie': sessionCookie(result.token, config.localTest, false, config.localCookieNamespace) },
+      );
     } else {
       if (!user) throw new AccountError(401, 'SESSION_EXPIRED', '请重新登录。');
       if (req.headers['x-jingyue-user'] !== user.id)
@@ -75,7 +79,11 @@ export async function accountRequest({ req, res, pathname, config, store, header
       if (action === 'profile') send(200, { user: await store.rename(user, data.displayName) });
       else {
         await store.logout(token);
-        send(200, { ok: true }, { 'Set-Cookie': sessionCookie('', config.localTest, true) });
+        send(
+          200,
+          { ok: true },
+          { 'Set-Cookie': sessionCookie('', config.localTest, true, config.localCookieNamespace) },
+        );
       }
     }
     return { handled: true };

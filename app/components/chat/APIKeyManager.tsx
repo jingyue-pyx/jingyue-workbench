@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect } from 'react';
 import { IconButton } from '~/components/ui/IconButton';
 import type { ProviderInfo } from '~/types/model';
 import Cookies from '~/lib/auth/account-cookies';
@@ -10,9 +10,6 @@ interface APIKeyManagerProps {
   getApiKeyLink?: string;
   labelForGetApiKey?: string;
 }
-
-// cache which stores whether the provider's API key is set via environment variable
-const providerEnvKeyStatusCache: Record<string, boolean> = {};
 
 const apiKeyMemoizeCache: { [k: string]: Record<string, string> } = {};
 
@@ -35,7 +32,8 @@ export function getApiKeysFromCookies() {
 export const APIKeyManager: React.FC<APIKeyManagerProps> = ({ provider, apiKey, setApiKey }) => {
   const [isEditing, setIsEditing] = useState(false);
   const [tempKey, setTempKey] = useState(apiKey);
-  const [isEnvKeySet, setIsEnvKeySet] = useState(false);
+  const [envKeyStatus, setEnvKeyStatus] = useState<'checking' | 'configured' | 'missing' | 'error'>('checking');
+  const [statusRetry, setStatusRetry] = useState(0);
 
   // Reset states and load saved key when provider changes
   useEffect(() => {
@@ -48,30 +46,47 @@ export const APIKeyManager: React.FC<APIKeyManagerProps> = ({ provider, apiKey, 
     setIsEditing(false);
   }, [provider.name]);
 
-  const checkEnvApiKey = useCallback(async () => {
-    // Check cache first
-    if (providerEnvKeyStatusCache[provider.name] !== undefined) {
-      setIsEnvKeySet(providerEnvKeyStatusCache[provider.name]);
-      return;
-    }
-
-    try {
-      const response = await fetch(`/api/check-env-key?provider=${encodeURIComponent(provider.name)}`);
-      const data = await response.json();
-      const isSet = (data as { isSet: boolean }).isSet;
-
-      // Cache the result
-      providerEnvKeyStatusCache[provider.name] = isSet;
-      setIsEnvKeySet(isSet);
-    } catch (error) {
-      console.error('Failed to check environment API key:', error);
-      setIsEnvKeySet(false);
-    }
-  }, [provider.name]);
-
   useEffect(() => {
-    checkEnvApiKey();
-  }, [checkEnvApiKey]);
+    const controller = new AbortController();
+    let active = true;
+    setEnvKeyStatus('checking');
+
+    /*
+     * Templates use the same server-side key. Only a boolean status crosses
+     * this boundary; never copy the platform secret into browser settings.
+     */
+    void (async () => {
+      try {
+        const response = await fetch(`/api/check-env-key?provider=${encodeURIComponent(provider.name)}`, {
+          signal: controller.signal,
+          cache: 'no-store',
+        });
+
+        if (!response.ok) {
+          throw new Error('Model configuration status unavailable');
+        }
+
+        const data = (await response.json()) as { isSet?: unknown };
+
+        if (typeof data.isSet !== 'boolean') {
+          throw new Error('Invalid model configuration status');
+        }
+
+        if (active) {
+          setEnvKeyStatus(data.isSet ? 'configured' : 'missing');
+        }
+      } catch {
+        if (active) {
+          setEnvKeyStatus('error');
+        }
+      }
+    })();
+
+    return () => {
+      active = false;
+      controller.abort();
+    };
+  }, [provider.name, statusRetry]);
 
   const handleSave = () => {
     // Save to parent state
@@ -97,11 +112,23 @@ export const APIKeyManager: React.FC<APIKeyManagerProps> = ({ provider, apiKey, 
                   <div className="i-ph:check-circle-fill text-green-500 w-4 h-4" />
                   <span className="text-xs text-bolt-elements-textSecondary">已配置个人密钥</span>
                 </>
-              ) : isEnvKeySet ? (
+              ) : envKeyStatus === 'configured' ? (
                 <>
                   <div className="i-ph:check-circle-fill text-green-500 w-4 h-4" />
                   <span className="text-xs text-bolt-elements-textSecondary">平台已配置，无需填写</span>
                 </>
+              ) : envKeyStatus === 'checking' ? (
+                <span className="text-xs text-bolt-elements-textSecondary" role="status">
+                  正在检测平台模型配置…
+                </span>
+              ) : envKeyStatus === 'error' ? (
+                <button
+                  type="button"
+                  className="text-xs text-bolt-elements-textSecondary underline"
+                  onClick={() => setStatusRetry((value) => value + 1)}
+                >
+                  暂未获取模型配置，点击重试
+                </button>
               ) : (
                 <>
                   <div className="i-ph:x-circle-fill text-red-500 w-4 h-4" />
@@ -152,7 +179,7 @@ export const APIKeyManager: React.FC<APIKeyManagerProps> = ({ provider, apiKey, 
                 <div className="i-ph:pencil-simple w-4 h-4" />
               </IconButton>
             }
-            {provider?.getApiKeyLink && !apiKey && (
+            {provider?.getApiKeyLink && !apiKey && envKeyStatus === 'missing' && (
               <IconButton
                 onClick={() => window.open(provider?.getApiKeyLink)}
                 title="Get API Key"

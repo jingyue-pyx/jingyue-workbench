@@ -47,7 +47,10 @@ export function VercelDeploymentLink() {
         const chatNumber = currentChatId.split('-')[0];
 
         // Find project by matching the chat number in the name
-        const project = projects.find((p: { name: string | string[] }) => p.name.includes(`bolt-diy-${chatNumber}`));
+        const project = projects.find(
+          (p: { name: string | string[] }) =>
+            p.name.includes(`jingyue-${chatNumber}`) || p.name.includes(`bolt-diy-${chatNumber}`),
+        );
 
         if (project) {
           // Fetch project details including deployments

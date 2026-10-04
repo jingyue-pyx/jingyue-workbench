@@ -62,6 +62,7 @@ await cp(join(root, 'deployment/supabase.env.example'), join(output, 'supabase.e
 await cp(join(root, 'deployment/PROJECTS.md'), join(output, 'PROJECTS.md'));
 await cp(join(root, 'deployment/ACCOUNTS.md'), join(output, 'ACCOUNTS.md'));
 await cp(join(root, 'deployment/persistence.env.example'), join(output, 'persistence.env.example'));
+await cp(join(root, 'deployment/publishing.env.example'), join(output, 'publishing.env.example'));
 
 // Allowlist construction never reads local key/configuration files.
 const inspection = await inspectRelease(output);

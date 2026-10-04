@@ -11,6 +11,8 @@ import { AccountError } from './accounts.mjs';
 import { accountRequest } from './account-api.mjs';
 import { runtimeEventName } from './runtime-events.mjs';
 import { demoDataRoute, handleDemoDataApi } from './demo-data.mjs';
+import { handleAgentApi } from './opencode/api.mjs';
+import { handlePublishingApi } from './publishing/api.mjs';
 
 // Never emit messages, stacks, URLs or arbitrary error properties: upstream
 // failures can contain prompts, credentials and headers. These finite labels
@@ -47,6 +49,8 @@ export async function createGateway({
   projectStore = null,
   accountStore = null,
   demoDataStore = null,
+  opencodeRunner = null,
+  publishingService = null,
 }) {
   const clientRoot = await realpath(clientDirectory);
   const maxBody = 4 * 1024 * 1024;
@@ -58,6 +62,8 @@ export async function createGateway({
   let runtimeWindow = { at: Date.now(), count: 0 };
   let demoWindow = { at: Date.now(), count: 0 };
   let activeDemo = 0;
+  let publishingWindow = { at: Date.now(), count: 0 };
+  let activePublishing = 0;
 
   const headers = {
     'Cross-Origin-Embedder-Policy': 'require-corp',
@@ -136,6 +142,16 @@ export async function createGateway({
           return send(403, { error: 'Same-origin requests required' });
         if (!req.headers['content-type']?.startsWith('application/json')) return send(415, { error: 'JSON required' });
       }
+      if (pathname === '/api/publishing') {
+        if (Date.now() - publishingWindow.at > 60000) publishingWindow = { at: Date.now(), count: 0 };
+        if (activePublishing >= 2 || publishingWindow.count++ >= 120)
+          return send(429, { error: { code: 'PUBLISH_RATE_LIMIT', message: '发布请求较多，请稍后查询。' } });
+        activePublishing++;
+        try {
+          await handlePublishingApi({ req, pathname, service: publishingService, user: accountUser, send });
+        } finally { activePublishing--; }
+        return;
+      }
       if (pathname === '/api/runtime-events') {
         if (req.method !== 'POST') return send(405, { error: 'Method not allowed' });
         if (Date.now() - runtimeWindow.at > 60000) runtimeWindow = { at: Date.now(), count: 0 };
@@ -159,6 +175,17 @@ export async function createGateway({
         report(event);
         return send(200, { accepted: true });
       }
+      if (await handleAgentApi({ req, res, pathname, runner: opencodeRunner, config, user: accountUser,
+        projects: projectStore, signal: controller.signal, headers, send, report,
+        charge: async () => {
+          if (Date.now() - modelWindow.at > 60000) modelWindow = { at: Date.now(), count: 0 };
+          if (activeCalls >= 2 || modelWindow.count >= 10) throw new Error('Model rate limit');
+          modelWindow.count++;
+          await accountStore.allowModel(accountUser);
+          activeCalls++;
+          return () => { activeCalls--; };
+        },
+      })) return;
       const demo = demoDataRoute(pathname);
       if (demo) {
         if (Date.now() - demoWindow.at > 60000) demoWindow = { at: Date.now(), count: 0 };
@@ -236,7 +263,15 @@ export async function createGateway({
         try {
           const actual = await realpath(candidate);
           if (actual.startsWith(clientRoot + sep) && (await stat(actual)).isFile()) {
-            res.writeHead(200, { ...headers, 'Content-Type': mime[extname(actual)] || 'application/octet-stream' });
+            // Only fingerprinted, shipped assets may be cached. Authentication
+            // above still applies to every network read; HTML/API/private data
+            // and unversioned files retain no-store. No shared proxy caching.
+            const fingerprinted = /^\/assets\/[\w.-]+-[A-Za-z0-9_-]{8}\.(?:js|css|woff2?|png|svg|webp)$/.test(pathname);
+            res.writeHead(200, {
+              ...headers,
+              ...(fingerprinted ? { 'Cache-Control': 'private, max-age=31536000, immutable' } : {}),
+              'Content-Type': mime[extname(actual)] || 'application/octet-stream',
+            });
             if (req.method === 'HEAD') return res.end();
             return await pipeline(createReadStream(actual), res);
           }

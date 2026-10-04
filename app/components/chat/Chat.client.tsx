@@ -49,8 +49,16 @@ const logger = createScopedLogger('Chat');
 export function Chat() {
   renderLogger.trace('Chat');
 
-  const { ready, loadError, conversationMessages, initialMessages, storeMessageHistory, importChat, exportChat } =
-    useChatHistory();
+  const {
+    ready,
+    loadError,
+    conversationMessages,
+    conversationCached,
+    initialMessages,
+    storeMessageHistory,
+    importChat,
+    exportChat,
+  } = useChatHistory();
   const title = useStore(description);
   useEffect(() => {
     workbenchStore.setReloadedMessages(initialMessages.map((m) => m.id));
@@ -62,6 +70,7 @@ export function Chat() {
       {!ready && (
         <ProjectLoadingView
           messages={conversationMessages}
+          cached={conversationCached}
           error={loadError}
           onRetry={() => window.location.reload()}
         />

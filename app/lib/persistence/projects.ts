@@ -89,8 +89,16 @@ export class ProjectRepository {
   async local(id: string) {
     return this._sessions.get(id) || this._cache.get(id);
   }
-  async load(id: string, remoteOnly = false): Promise<CachedProject> {
+  async load(id: string, remoteOnly = false, onCached?: (project: CachedProject) => void): Promise<CachedProject> {
     const local = await this.local(id);
+
+    /*
+     * Read-only, account-scoped history can paint while the authoritative read
+     * is pending. This callback must never enable editing or hydrate the runtime.
+     */
+    if (!remoteOnly && local && !local.deletedAt && local.state !== 'deleted') {
+      onCached?.(local);
+    }
 
     if (!remoteOnly && local && local.state !== 'cloud') {
       this._sessions.set(id, local);

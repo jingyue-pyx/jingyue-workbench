@@ -41,12 +41,16 @@ export async function verifyPassword(password, encoded) {
   const key = await derive(password, parts[1], 64, hashOptions);
   return timingSafeEqual(key, Buffer.from(parts[2], 'hex'));
 }
-export function sessionCookie(token, localTest, clear = false) {
-  const name = localTest ? 'jingyue_session_test' : '__Host-jingyue_session';
+const cookieName = (localTest, namespace) =>
+  localTest
+    ? `jingyue_session_test${typeof namespace === 'string' && /^[a-z0-9-]{1,24}$/.test(namespace) ? `_${namespace}` : ''}`
+    : '__Host-jingyue_session';
+export function sessionCookie(token, localTest, clear = false, namespace) {
+  const name = cookieName(localTest, namespace);
   return `${name}=${clear ? '' : token}; Path=/; HttpOnly; SameSite=Strict; Max-Age=${clear ? 0 : SESSION_SECONDS}${localTest ? '' : '; Secure'}`;
 }
-export function readSession(cookie, localTest) {
-  const name = localTest ? 'jingyue_session_test' : '__Host-jingyue_session';
+export function readSession(cookie, localTest, namespace) {
+  const name = cookieName(localTest, namespace);
   const matches = (cookie || '')
     .split(';')
     .map((part) => part.trim())

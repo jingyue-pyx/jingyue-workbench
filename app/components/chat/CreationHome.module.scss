@@ -1,0 +1,462 @@
+/* These classes are mounted only on the new-conversation surface. */
+.HomeSurface .HomeChat {
+  height: auto;
+  min-height: 100%;
+  background: var(--bolt-elements-bg-depth-1);
+  padding-bottom: 48px;
+}
+
+.Intro {
+  width: min(880px, calc(100% - 48px));
+  margin: clamp(40px, 7vh, 72px) auto 30px;
+  text-align: center;
+  color: var(--bolt-elements-textPrimary);
+
+  h1 {
+    margin: 0 0 14px;
+    font-size: clamp(27px, 3.1vw, 42px);
+    font-weight: 650;
+    letter-spacing: -0.045em;
+    line-height: 1.3;
+  }
+
+  p {
+    margin: 0;
+    font-size: 14px;
+    line-height: 1.7;
+    color: var(--bolt-elements-textSecondary);
+  }
+}
+
+.HomeSurface .InputStage {
+  padding: 0 24px;
+  flex-shrink: 0;
+}
+
+.HomeSurface .PromptWidth {
+  width: min(100%, 880px);
+  max-width: 880px;
+  margin: 0 auto;
+}
+
+.HomeSurface .HomeComposer {
+  width: 100%;
+  max-width: none;
+  padding: 10px;
+  border-radius: 22px;
+  box-shadow: 0 8px 36px color-mix(in srgb, var(--bolt-elements-textPrimary) 6%, transparent);
+  background: var(--bolt-elements-bg-depth-1);
+  border-color: color-mix(in srgb, var(--bolt-elements-borderColorActive) 18%, var(--bolt-elements-borderColor));
+}
+
+.HomeSurface .HomeInput {
+  border: 0;
+  border-radius: 14px;
+  background: transparent;
+  box-shadow: none;
+  backdrop-filter: none;
+
+  &:focus-within {
+    box-shadow: none;
+  }
+
+  textarea {
+    font-size: 16px;
+    line-height: 1.8;
+    padding: 12px 62px 12px 16px;
+
+    &::placeholder {
+      color: var(--bolt-elements-textSecondary);
+      opacity: 1;
+    }
+
+    &:focus-visible {
+      outline: 2px solid var(--bolt-elements-borderColorActive);
+      outline-offset: -2px;
+      border-radius: 12px;
+    }
+  }
+}
+
+.InputLabel {
+  display: block;
+  padding: 7px 16px 0;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--bolt-elements-textSecondary);
+}
+
+.BelowPrompt {
+  position: relative;
+  width: min(880px, calc(100% - 48px));
+  margin: 18px auto 0;
+  min-height: 54px;
+  padding-right: 162px;
+}
+
+.Mascot {
+  position: absolute;
+  right: 8px;
+  top: -30px;
+  width: 156px;
+  height: 134px;
+  object-fit: contain;
+  pointer-events: none;
+}
+
+.Imports {
+  color: var(--bolt-elements-textSecondary);
+  font-size: 13px;
+
+  summary {
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    min-height: 36px;
+    list-style: none;
+    border-radius: 8px;
+    padding: 4px 8px;
+
+    &::-webkit-details-marker {
+      display: none;
+    }
+
+    &:hover {
+      color: var(--bolt-elements-textPrimary);
+      background: var(--bolt-elements-bg-depth-2);
+    }
+
+    &:focus-visible {
+      outline: 2px solid var(--bolt-elements-borderColorActive);
+      outline-offset: 2px;
+    }
+  }
+}
+
+.ImportControls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 10px;
+
+  div {
+    max-width: 100%;
+    flex-wrap: wrap;
+    justify-content: flex-start;
+  }
+
+  button {
+    white-space: normal;
+    height: auto;
+    min-height: 36px;
+  }
+}
+
+.Library {
+  width: min(1120px, calc(100% - 64px));
+  margin: 54px auto 0;
+  color: var(--bolt-elements-textPrimary);
+
+  button {
+    cursor: pointer;
+  }
+}
+
+.LibraryHeading {
+  p {
+    margin: 10px 0 18px;
+    color: var(--bolt-elements-textSecondary);
+    font-size: 13px;
+    line-height: 1.7;
+  }
+}
+
+.SectionSwitch {
+  display: flex;
+  gap: 24px;
+  border-bottom: 1px solid var(--bolt-elements-borderColor);
+
+  button {
+    position: relative;
+    padding: 0 0 13px;
+    background: transparent;
+    color: var(--bolt-elements-textSecondary);
+    font-size: 17px;
+    font-weight: 550;
+
+    &:hover {
+      color: var(--bolt-elements-textPrimary);
+    }
+
+    &[aria-pressed='true'] {
+      color: var(--bolt-elements-textPrimary);
+
+      &::after {
+        content: '';
+        position: absolute;
+        bottom: -1px;
+        left: 0;
+        right: 0;
+        height: 2px;
+        border-radius: 2px;
+        background: var(--bolt-elements-borderColorActive);
+      }
+    }
+  }
+}
+
+.Categories {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 20px;
+
+  button {
+    padding: 6px 12px;
+    min-height: 32px;
+    border-radius: 8px;
+    font-size: 12px;
+    color: var(--bolt-elements-textSecondary);
+
+    &[aria-pressed='true'] {
+      background: var(--bolt-elements-item-backgroundAccent);
+      color: var(--bolt-elements-item-contentAccent);
+    }
+
+    &:hover {
+      background: var(--bolt-elements-bg-depth-2);
+    }
+  }
+}
+
+.ExampleGrid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 18px;
+}
+
+.ExampleCard {
+  overflow: hidden;
+  min-width: 0;
+  border: 1px solid var(--bolt-elements-borderColor);
+  border-radius: 16px;
+  text-align: left;
+  color: var(--bolt-elements-textPrimary);
+  background: var(--bolt-elements-bg-depth-1);
+  transition: transform 140ms ease;
+
+  &:hover:not(:disabled) {
+    transform: translateY(-3px);
+    border-color: var(--bolt-elements-borderColorActive);
+  }
+
+  &:active:not(:disabled) {
+    transform: translateY(-1px);
+  }
+
+  &:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+  }
+}
+
+.CardVisual {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 22px;
+  min-height: 100px;
+  background: color-mix(in srgb, var(--bolt-elements-item-backgroundAccent) 50%, var(--bolt-elements-bg-depth-2));
+  color: var(--bolt-elements-item-contentAccent);
+}
+
+.ExampleCard:nth-child(even) .CardVisual {
+  background: var(--bolt-elements-bg-depth-2);
+}
+
+.CardIcon {
+  display: block;
+  width: 36px;
+  height: 36px;
+}
+
+.CardCategory {
+  font-size: 12px;
+}
+
+.CardContent {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 18px;
+
+  strong {
+    font-size: 15px;
+    font-weight: 600;
+  }
+
+  > span:not(.CardAction) {
+    font-size: 12px;
+    line-height: 1.75;
+    min-height: 42px;
+    color: var(--bolt-elements-textSecondary);
+  }
+}
+
+.CardAction {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--bolt-elements-item-contentAccent);
+}
+
+.SelectionStatus {
+  margin: 14px 0 0;
+  font-size: 12px;
+  line-height: 1.7;
+  color: var(--bolt-elements-textSecondary);
+}
+
+.TemplateGrid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.TemplateCard {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 16px;
+  border: 1px solid var(--bolt-elements-borderColor);
+  border-radius: 12px;
+  color: var(--bolt-elements-textPrimary);
+
+  &:hover {
+    background: var(--bolt-elements-bg-depth-2);
+  }
+
+  > span:nth-child(2) {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+
+    strong {
+      font-size: 13px;
+      font-weight: 550;
+      overflow-wrap: anywhere;
+    }
+
+    > span {
+      font-size: 11px;
+      line-height: 1.6;
+      color: var(--bolt-elements-textSecondary);
+    }
+  }
+}
+
+.TemplateIcon {
+  width: 28px;
+  height: 28px;
+  flex-shrink: 0;
+}
+
+.Library button:focus-visible,
+.Library a:focus-visible {
+  outline: 2px solid var(--bolt-elements-borderColorActive);
+  outline-offset: 4px;
+}
+
+@media (max-width: 1023px) {
+  .ExampleGrid,
+  .TemplateGrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 639px) {
+  .Intro {
+    width: calc(100% - 36px);
+    margin-top: 34px;
+    margin-bottom: 24px;
+
+    h1 {
+      font-size: 27px;
+      line-height: 1.45;
+    }
+  }
+
+  .HomeSurface .InputStage {
+    padding-inline: 16px;
+  }
+
+  .HomeSurface .HomeComposer {
+    padding: 6px;
+    border-radius: 18px;
+  }
+
+  .HomeSurface .HomeInput textarea {
+    font-size: 16px;
+  }
+
+  .BelowPrompt {
+    width: calc(100% - 32px);
+    padding-right: 0;
+    padding-top: 16px;
+  }
+
+  .Mascot {
+    width: 112px;
+    height: 96px;
+    right: 4px;
+    top: -12px;
+  }
+
+  .Imports > summary {
+    max-width: calc(100% - 120px);
+  }
+
+  .Library {
+    width: calc(100% - 32px);
+    margin-top: 42px;
+  }
+
+  .ExampleGrid,
+  .TemplateGrid {
+    grid-template-columns: 1fr;
+    gap: 12px;
+  }
+
+  .ExampleCard {
+    display: grid;
+    grid-template-columns: 94px minmax(0, 1fr);
+  }
+
+  .CardVisual {
+    flex-direction: column;
+    justify-content: center;
+    gap: 14px;
+    padding: 14px;
+    height: 100%;
+  }
+
+  .CardContent {
+    padding: 15px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ExampleCard {
+    transition: none;
+
+    &:hover:not(:disabled),
+    &:active:not(:disabled) {
+      transform: none;
+    }
+  }
+}

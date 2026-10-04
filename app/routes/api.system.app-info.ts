@@ -45,9 +45,9 @@ const getAppResponse = () => {
   const gitInfo = getGitInfo();
 
   return {
-    name: __PKG_NAME || 'bolt.diy',
+    name: __PKG_NAME || 'jingyue',
     version: __APP_VERSION || '0.1.0',
-    description: __PKG_DESCRIPTION || 'A DIY LLM interface',
+    description: __PKG_DESCRIPTION || '鲸月 · AI 网页创作工作台',
     license: __PKG_LICENSE || 'MIT',
     environment: 'cloudflare',
     gitInfo,
@@ -71,7 +71,7 @@ export const loader: LoaderFunction = async ({ request: _request }) => {
     console.error('Failed to get webapp info:', error);
     return json(
       {
-        name: 'bolt.diy',
+        name: 'jingyue',
         version: '0.0.0',
         description: 'Error fetching app info',
         license: 'MIT',
@@ -106,7 +106,7 @@ export const action = async ({ request: _request }: ActionFunctionArgs) => {
     console.error('Failed to get webapp info:', error);
     return json(
       {
-        name: 'bolt.diy',
+        name: 'jingyue',
         version: '0.0.0',
         description: 'Error fetching app info',
         license: 'MIT',

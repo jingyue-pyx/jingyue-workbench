@@ -1,5 +1,5 @@
-appId: com.stackblitz.bolt.diy
-productName: Bolt Local
+appId: com.jingyue.workbench
+productName: 鲸月
 directories:
   buildResources: build
   output: dist
@@ -56,9 +56,9 @@ npmRebuild: false
 
 publish:
   provider: github
-  owner: Derek-X-Wang
-  repo: bolt.local
-  private: true
+  owner: jingyue-pyx
+  repo: jingyue-workbench
+  private: false
   releaseType: release
 
 electronDownload:

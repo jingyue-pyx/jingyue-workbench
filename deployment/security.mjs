@@ -13,6 +13,9 @@ export const API_PATHS = new Set([
   '/api/models/Bailian',
   '/api/check-env-key',
   '/api/runtime-events',
+  '/api/agent-engine',
+  '/api/opencode',
+  '/api/publishing',
 ]);
 
 export function configuration(env) {

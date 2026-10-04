@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, writeFile, symlink, rm } from 'node:fs/promises';
+import { mkdtemp, mkdir, writeFile, symlink, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { once } from 'node:events';
@@ -94,6 +94,30 @@ test('gateway authenticates every surface except minimal health status', async (
   assert.equal((await fetch(origin + '/', { headers: { authorization: 'Basic d3Jvbmc6d3Jvbmc=' } })).status, 401);
 });
 
+test('template and chat entry share server model status without exposing the key', async (t) => {
+  const { origin, received } = await fixture(t);
+  for (const referer of ['/', '/git?url=https://github.com/example/template.git', '/chat/example']) {
+    const response = await fetch(origin + '/api/check-env-key?provider=Bailian', {
+      headers: { authorization: auth, referer: origin + referer },
+    });
+    assert.equal(response.status, 200);
+    const body = await response.text();
+    assert.deepEqual(JSON.parse(body), { isSet: true });
+    assert.ok(!body.includes(fakeKey));
+  }
+  assert.equal((await fetch(origin + '/api/check-env-key?provider=Bailian')).status, 401);
+  assert.equal(received(), undefined);
+});
+
+test('legacy connector, publishing and git proxy APIs remain unavailable without widening access', async (t) => {
+  const { origin, received } = await fixture(t);
+  for (const path of ['/api/supabase', '/api/supabase/variables', '/api/netlify-deploy', '/api/vercel-deploy', '/api/git-proxy', '/api/system/diagnostics']) {
+    const response = await fetch(origin + path, { headers: { authorization: auth } });
+    assert.equal(response.status, 404, path);
+  }
+  assert.equal(received(), undefined);
+});
+
 test('runtime events require authentication and same origin, contain finite labels only, and do not call the model', async (t) => {
   const events = [];
   const { origin, received } = await fixture(t, { report: (event) => events.push(event) });
@@ -146,6 +170,32 @@ test('SSR, static assets, model catalog and isolation headers work after authent
   assert.equal(await asset.text(), 'window.fixture = true;');
   const head = await fetch(origin + '/asset.js', { method: 'HEAD', headers: { authorization: auth } });
   assert.equal(await head.text(), '');
+});
+
+test('only authenticated fingerprinted build assets are privately cached; HTML and APIs never are', async (t) => {
+  const { directory, origin } = await fixture(t);
+  await mkdir(join(directory, 'assets'));
+  for (const name of ['entry-aB12cd34.js', 'style-aB12cd34.css', 'entry.js', 'entry-aB12cd34.js.map', 'data-aB12cd34.json']) {
+    await writeFile(join(directory, 'assets', name), 'test fixture');
+  }
+  for (const name of ['entry-aB12cd34.js', 'style-aB12cd34.css']) {
+    const url = origin + '/assets/' + name;
+    const denied = await fetch(url);
+    assert.equal(denied.status, 401);
+    assert.equal(denied.headers.get('cache-control'), 'private, no-store');
+    for (const method of ['GET', 'HEAD']) {
+      const allowed = await fetch(url, { method, headers: { authorization: auth } });
+      assert.equal(allowed.status, 200);
+      assert.equal(allowed.headers.get('cache-control'), 'private, max-age=31536000, immutable');
+      assert.equal(allowed.headers.get('cross-origin-embedder-policy'), 'require-corp');
+      await allowed.arrayBuffer();
+    }
+  }
+  for (const path of ['/', '/chat/test', '/api/models', '/assets/entry.js', '/assets/entry-aB12cd34.js.map', '/assets/data-aB12cd34.json']) {
+    const response = await fetch(origin + path, { headers: { authorization: auth } });
+    assert.equal(response.headers.get('cache-control'), 'private, no-store');
+    await response.arrayBuffer();
+  }
 });
 
 test('origin-only referrer policy covers all surfaces and overrides upstream disclosure policies', async (t) => {

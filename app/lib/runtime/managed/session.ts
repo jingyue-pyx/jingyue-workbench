@@ -27,6 +27,7 @@ import { outcomeAnnotation } from './conversation';
 import { runActivity, recordWrittenFile } from './activity';
 import { compileCandidate } from './candidate-workspace';
 import { createBatchedModel } from './file-batches';
+import { localAgentEngine, openCodeRequest } from './opencode-client';
 
 const planReview = new PlanReviewGate();
 export const planReviewReady = atom(false);
@@ -212,6 +213,7 @@ export async function runManagedTask(
 
     const project = chatId.get() || 'new';
     const revision = workbenchStore.manualEditVersion;
+    const engine = await localAgentEngine(options.model);
     const batchedModel = createBatchedModel(
       (phase, payload, signal) => {
         runActivity.set({ ...runActivity.get(), receivedChars: 0 });
@@ -296,7 +298,24 @@ export async function runManagedTask(
             planReview.confirm(runState.get().id);
           }
         },
-        model: batchedModel,
+        model: (phase, payload, signal) => {
+          if (engine === 'opencode' && (phase === 'generate' || phase === 'repair')) {
+            return openCodeRequest(phase, payload, {
+              model: options.model,
+              projectId: chatId.get(),
+              signal,
+              onProgress: (receivedChars, detail) => {
+                runActivity.set({ ...runActivity.get(), receivedChars });
+
+                if (detail && !terminalPhase(runState.get().phase)) {
+                  runState.set({ ...runState.get(), detail });
+                }
+              },
+            });
+          }
+
+          return batchedModel(phase, payload, signal);
+        },
         apply: async (files, signal) => {
           await applySources(files, signal);
           await options.saveDraft?.();

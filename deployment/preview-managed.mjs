@@ -23,6 +23,11 @@ const demoSettings = parse(await readFile(resolve(root, '.supabase.local.env'), 
 for (const name of ['JINGYUE_SUPABASE_URL', 'JINGYUE_SUPABASE_SERVICE_KEY', 'JINGYUE_DEMO_WORKBENCH_PROJECT']) {
   if (demoSettings[name]) process.env[name] = demoSettings[name];
 }
+// Optional server-side publishing configuration; never included in the bundle.
+const publishingSettings = parse(await readFile(resolve(root, '.publishing.local.env'), 'utf8').catch(() => ''));
+for (const name of ['JINGYUE_NETLIFY_ENABLED', 'JINGYUE_NETLIFY_CLIENT_ID', 'JINGYUE_PUBLISHING_ENCRYPTION_KEY']) {
+  if (publishingSettings[name]) process.env[name] = publishingSettings[name];
+}
 
 const { build } = createRequire(require.resolve('vite/package.json'))('esbuild');
 const databaseDirectory =
@@ -36,7 +41,7 @@ await build({
     contents: `
     import { readFile } from 'node:fs/promises';
     import { randomBytes, randomUUID } from 'node:crypto';
-    import { PGlite } from '@electric-sql/pglite';
+    import { openPreviewDatabase } from './deployment/preview-database.mjs';
     import { createRequestHandler } from '@remix-run/node';
     import * as app from ${JSON.stringify(snapshot.serverEntry)};
     import { createGateway, failureDetails } from './deployment/gateway.mjs';
@@ -44,18 +49,41 @@ await build({
     import { AccountStore } from './deployment/accounts.mjs';
     import { PostgresProjectStore } from './deployment/project-store.mjs';
     import { createDemoDataStore } from './deployment/demo-data.mjs';
-    const database = await PGlite.create(${JSON.stringify(databaseDirectory)});
-    for (const file of ['001-projects.sql','003-accounts.sql']) await database.exec(await readFile(${JSON.stringify(resolve(root, 'deployment/sql'))}+'/'+file, 'utf8'));
+    import { createLocalOpenCode } from './deployment/opencode/runner.mjs';
+    import { createPublishingService } from './deployment/publishing/service.mjs';
+    const database = await openPreviewDatabase(${JSON.stringify(databaseDirectory)});
+    for (const file of ['001-projects.sql','003-accounts.sql','005-publishing.sql']) await database.exec(await readFile(${JSON.stringify(resolve(root, 'deployment/sql'))}+'/'+file, 'utf8'));
     let previous=Promise.resolve();
     const pool={async connect(){const wait=previous;let release;previous=new Promise(r=>release=r);await wait;return {query:(s,a)=>database.query(s,a),release};},async query(s,a){const c=await this.connect();try{return await c.query(s,a);}finally{c.release();}}};
     const config=configuration({JINGYUE_PUBLIC_ORIGIN:'http://127.0.0.1:${previewPort}',JINGYUE_LOCAL_TEST:'1',PORT:'${previewPort}',WORKBENCH_ACCESS_USER:'local-preview-owner',WORKBENCH_ACCESS_PASSWORD:randomBytes(32).toString('base64url'),JINGYUE_AUTH_MODE:'accounts',JINGYUE_REGISTRATION_OPEN:'1',JINGYUE_USER_DAILY_REQUESTS:${JSON.stringify(String(modelLimit))},DASHSCOPE_API_KEY:process.env.DASHSCOPE_API_KEY,DASHSCOPE_BASE_URL:process.env.DASHSCOPE_BASE_URL});
     const owner=randomUUID();
+    if (process.env.JINGYUE_LOCAL_AGENT==='opencode') config.localCookieNamespace='opencode-${previewPort}';
     const accounts=new AccountStore(pool,config,owner);
     if (!(await pool.query("SELECT id FROM jingyue.accounts WHERE username='preview_alice'")).rows.length) await accounts.register({username:'preview_alice',displayName:'小月 · 验收账号',password:'Local-test-password-7248'},'local-fixture');
     const demoDataStore=createDemoDataStore(process.env);
-    const server=await createGateway({config,demoDataStore,report:(event,error)=>process.stdout.write(JSON.stringify({event,...(error?failureDetails(error):{})})+'\\n'),clientDirectory:${JSON.stringify(snapshot.clientDirectory)},accountStore:accounts,projectStore:new PostgresProjectStore(pool,owner),handler:async (request,context)=>createRequestHandler(app,'production')(request,context)});
+    const report=(event,error)=>process.stdout.write(JSON.stringify({event,...(error?failureDetails(error):{})})+'\\n');
+    const opencodeRunner=process.env.JINGYUE_LOCAL_AGENT==='opencode' ? await createLocalOpenCode({config,report}) : null;
+    const projectStore=new PostgresProjectStore(pool,owner);
+    const publishingService=createPublishingService(process.env,projectStore);
+    const server=await createGateway({config,demoDataStore,opencodeRunner,publishingService,report,clientDirectory:${JSON.stringify(snapshot.clientDirectory)},accountStore:accounts,projectStore,handler:async (request,context)=>createRequestHandler(app,'production')(request,context)});
     server.listen(${previewPort},'127.0.0.1',()=>process.stdout.write('Managed runtime preview ready at http://127.0.0.1:${previewPort}/register; local workbench database; optional demo backend configured: '+Boolean(demoDataStore)+'; model limit ${modelLimit}/day.\\n'));
-    process.on('SIGTERM',()=>{server.closeAllConnections();server.close(async()=>{await database.close();process.exit(0);});});
+    let stopping=false;
+    const stop=()=>{
+      if(stopping)return;
+      stopping=true;
+      const keepAlive=setInterval(()=>{},1000);
+      server.closeAllConnections();
+      server.close(async()=>{
+        let failed=false;
+        try { await opencodeRunner?.close(); } catch { failed=true; report('local_agent_close_failed'); }
+        try { await previous; await database.close(); report('local_preview_database_closed'); }
+        catch { failed=true; report('local_preview_database_close_failed'); }
+        clearInterval(keepAlive);
+        process.exit(failed?1:0);
+      });
+    };
+    process.once('SIGTERM',stop);
+    process.once('SIGINT',stop);
   `,
     resolveDir: root,
   },

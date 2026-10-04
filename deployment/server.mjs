@@ -8,6 +8,7 @@ import { createModelNetwork } from './network.mjs';
 import { createProjectStore } from './project-store.mjs';
 import { AccountStore } from './accounts.mjs';
 import { createDemoDataStore } from './demo-data.mjs';
+import { createPublishingService } from './publishing/service.mjs';
 
 // Upstream logs may contain raw SDK errors, prompts, or request headers. Only
 // fixed deployment events are emitted, never raw upstream console arguments.
@@ -33,6 +34,7 @@ try {
   const demoDataStore = createDemoDataStore(process.env, globalThis.fetch);
   const network = createModelNetwork(config);
   const projectStore = await createProjectStore(process.env, report);
+  const publishingService = createPublishingService(process.env, projectStore, globalThis.fetch);
   if (config.authMode === 'accounts' && !projectStore) throw new Error('Account storage is required.');
   const accountStore = config.authMode === 'accounts' ? new AccountStore(projectStore.pool, config, projectStore.ownerId) : null;
   globalThis.fetch = network.fetch;
@@ -45,6 +47,7 @@ try {
     projectStore,
     accountStore,
     demoDataStore,
+    publishingService,
   });
   server.listen(config.port, config.host, () => report('private_preview_ready'));
 } catch {

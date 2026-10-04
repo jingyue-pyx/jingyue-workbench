@@ -65,7 +65,7 @@ describe('workbench presentation preserves controls', () => {
   });
 
   it('explains server configuration without removing the existing key edit control', async () => {
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ json: async () => ({ isSet: true }) }));
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(Response.json({ isSet: true })));
     render(
       <APIKeyManager provider={{ name: 'ConfiguredTestProvider' } as ProviderInfo} apiKey="" setApiKey={vi.fn()} />,
     );

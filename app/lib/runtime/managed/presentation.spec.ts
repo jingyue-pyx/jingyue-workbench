@@ -15,6 +15,12 @@ const failed: RunState = {
 };
 afterEach(() => vi.unstubAllGlobals());
 describe('runtime presentation and diagnostics', () => {
+  it('keeps the bounded OpenCode failure reason instead of a generic preparation failure', () => {
+    const message = runMessage({ ...failed, detail: 'OpenCode 本轮已达到调用预算，候选未写入。' });
+    expect(message).toContain('调用预算');
+    expect(message).toContain('当前源码与预览保留');
+    expect(message).not.toContain('未能完成页面准备');
+  });
   it('does not ask the model to repair an incomplete dependency installation', () => {
     const state = {
       ...failed,

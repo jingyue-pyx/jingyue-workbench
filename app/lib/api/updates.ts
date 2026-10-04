@@ -57,7 +57,7 @@ export const checkForUpdates = async (): Promise<UpdateCheckResult> => {
      * Using raw.githubusercontent.com which doesn't require authentication
      */
     const latestPackageResponse = await fetch(
-      'https://raw.githubusercontent.com/stackblitz-labs/bolt.diy/main/package.json',
+      'https://raw.githubusercontent.com/jingyue-pyx/jingyue-workbench/main/package.json',
     );
 
     if (!latestPackageResponse.ok) {

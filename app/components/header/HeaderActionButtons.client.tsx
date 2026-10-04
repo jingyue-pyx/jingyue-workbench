@@ -11,6 +11,8 @@ import { NetlifyDeploymentLink } from '~/components/chat/NetlifyDeploymentLink.c
 import { VercelDeploymentLink } from '~/components/chat/VercelDeploymentLink.client';
 import { useVercelDeploy } from '~/components/deploy/VercelDeploy.client';
 import { useNetlifyDeploy } from '~/components/deploy/NetlifyDeploy.client';
+import { PublishingDialog } from '~/components/deploy/PublishingDialog.client';
+import { currentAccount } from '~/lib/auth/account-context';
 
 interface HeaderActionButtonsProps {}
 
@@ -69,83 +71,90 @@ export function HeaderActionButtons({}: HeaderActionButtonsProps) {
 
   return (
     <div className="flex">
-      <div className="relative" ref={dropdownRef}>
-        <div className="flex border border-bolt-elements-borderColor rounded-md overflow-hidden mr-2 text-sm">
-          <Button
-            active
-            disabled={isDeploying || !activePreview || isStreaming}
-            onClick={() => setIsDropdownOpen(!isDropdownOpen)}
-            className="px-4 hover:bg-bolt-elements-item-backgroundActive flex items-center gap-2"
-          >
-            {isDeploying ? `Deploying to ${deployingTo}...` : 'Deploy'}
-            <div
-              className={classNames('i-ph:caret-down w-4 h-4 transition-transform', isDropdownOpen ? 'rotate-180' : '')}
-            />
-          </Button>
-        </div>
-
-        {isDropdownOpen && (
-          <div className="absolute right-2 flex flex-col gap-1 z-50 p-1 mt-1 min-w-[13.5rem] bg-bolt-elements-background-depth-2 rounded-md shadow-lg bg-bolt-elements-backgroundDefault border border-bolt-elements-borderColor">
+      {currentAccount ? (
+        <PublishingDialog />
+      ) : (
+        <div className="relative" ref={dropdownRef}>
+          <div className="flex border border-bolt-elements-borderColor rounded-md overflow-hidden mr-2 text-sm">
             <Button
               active
-              onClick={() => {
-                onNetlifyDeploy();
-                setIsDropdownOpen(false);
-              }}
-              disabled={isDeploying || !activePreview || !netlifyConn.user}
-              className="flex items-center w-full px-4 py-2 text-sm text-bolt-elements-textPrimary hover:bg-bolt-elements-item-backgroundActive gap-2 rounded-md group relative"
+              disabled={isDeploying || !activePreview || isStreaming}
+              onClick={() => setIsDropdownOpen(!isDropdownOpen)}
+              className="px-4 hover:bg-bolt-elements-item-backgroundActive flex items-center gap-2"
             >
-              <img
-                className="w-5 h-5"
-                height="24"
-                width="24"
-                crossOrigin="anonymous"
-                src="https://cdn.simpleicons.org/netlify"
+              {isDeploying ? `Deploying to ${deployingTo}...` : 'Deploy'}
+              <div
+                className={classNames(
+                  'i-ph:caret-down w-4 h-4 transition-transform',
+                  isDropdownOpen ? 'rotate-180' : '',
+                )}
               />
-              <span className="mx-auto">
-                {!netlifyConn.user ? 'No Netlify Account Connected' : 'Deploy to Netlify'}
-              </span>
-              {netlifyConn.user && <NetlifyDeploymentLink />}
-            </Button>
-            <Button
-              active
-              onClick={() => {
-                onVercelDeploy();
-                setIsDropdownOpen(false);
-              }}
-              disabled={isDeploying || !activePreview || !vercelConn.user}
-              className="flex items-center w-full px-4 py-2 text-sm text-bolt-elements-textPrimary hover:bg-bolt-elements-item-backgroundActive gap-2 rounded-md group relative"
-            >
-              <img
-                className="w-5 h-5 bg-black p-1 rounded"
-                height="24"
-                width="24"
-                crossOrigin="anonymous"
-                src="https://cdn.simpleicons.org/vercel/white"
-                alt="vercel"
-              />
-              <span className="mx-auto">{!vercelConn.user ? 'No Vercel Account Connected' : 'Deploy to Vercel'}</span>
-              {vercelConn.user && <VercelDeploymentLink />}
-            </Button>
-            <Button
-              active={false}
-              disabled
-              className="flex items-center w-full rounded-md px-4 py-2 text-sm text-bolt-elements-textTertiary gap-2"
-            >
-              <span className="sr-only">Coming Soon</span>
-              <img
-                className="w-5 h-5"
-                height="24"
-                width="24"
-                crossOrigin="anonymous"
-                src="https://cdn.simpleicons.org/cloudflare"
-                alt="cloudflare"
-              />
-              <span className="mx-auto">Deploy to Cloudflare (Coming Soon)</span>
             </Button>
           </div>
-        )}
-      </div>
+
+          {isDropdownOpen && (
+            <div className="absolute right-2 flex flex-col gap-1 z-50 p-1 mt-1 min-w-[13.5rem] bg-bolt-elements-background-depth-2 rounded-md shadow-lg bg-bolt-elements-backgroundDefault border border-bolt-elements-borderColor">
+              <Button
+                active
+                onClick={() => {
+                  onNetlifyDeploy();
+                  setIsDropdownOpen(false);
+                }}
+                disabled={isDeploying || !activePreview || !netlifyConn.user}
+                className="flex items-center w-full px-4 py-2 text-sm text-bolt-elements-textPrimary hover:bg-bolt-elements-item-backgroundActive gap-2 rounded-md group relative"
+              >
+                <img
+                  className="w-5 h-5"
+                  height="24"
+                  width="24"
+                  crossOrigin="anonymous"
+                  src="https://cdn.simpleicons.org/netlify"
+                />
+                <span className="mx-auto">
+                  {!netlifyConn.user ? 'No Netlify Account Connected' : 'Deploy to Netlify'}
+                </span>
+                {netlifyConn.user && <NetlifyDeploymentLink />}
+              </Button>
+              <Button
+                active
+                onClick={() => {
+                  onVercelDeploy();
+                  setIsDropdownOpen(false);
+                }}
+                disabled={isDeploying || !activePreview || !vercelConn.user}
+                className="flex items-center w-full px-4 py-2 text-sm text-bolt-elements-textPrimary hover:bg-bolt-elements-item-backgroundActive gap-2 rounded-md group relative"
+              >
+                <img
+                  className="w-5 h-5 bg-black p-1 rounded"
+                  height="24"
+                  width="24"
+                  crossOrigin="anonymous"
+                  src="https://cdn.simpleicons.org/vercel/white"
+                  alt="vercel"
+                />
+                <span className="mx-auto">{!vercelConn.user ? 'No Vercel Account Connected' : 'Deploy to Vercel'}</span>
+                {vercelConn.user && <VercelDeploymentLink />}
+              </Button>
+              <Button
+                active={false}
+                disabled
+                className="flex items-center w-full rounded-md px-4 py-2 text-sm text-bolt-elements-textTertiary gap-2"
+              >
+                <span className="sr-only">Coming Soon</span>
+                <img
+                  className="w-5 h-5"
+                  height="24"
+                  width="24"
+                  crossOrigin="anonymous"
+                  src="https://cdn.simpleicons.org/cloudflare"
+                  alt="cloudflare"
+                />
+                <span className="mx-auto">Deploy to Cloudflare (Coming Soon)</span>
+              </Button>
+            </div>
+          )}
+        </div>
+      )}
       <div className="flex border border-bolt-elements-borderColor rounded-md overflow-hidden">
         <Button
           active={showChat}
@@ -187,6 +196,7 @@ interface ButtonProps {
 function Button({ active = false, disabled = false, children, onClick, className }: ButtonProps) {
   return (
     <button
+      disabled={disabled}
       className={classNames(
         'flex items-center p-1.5',
         {

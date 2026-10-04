@@ -9,7 +9,7 @@ import { Menu } from '~/components/sidebar/Menu.client';
 import { IconButton } from '~/components/ui/IconButton';
 import { Workbench } from '~/components/workbench/Workbench.client';
 import { classNames } from '~/utils/classNames';
-import { PROVIDER_LIST } from '~/utils/constants';
+import { PROVIDER_LIST, STARTER_TEMPLATES } from '~/utils/constants';
 import { Messages } from './Messages.client';
 import { SendButton } from './SendButton.client';
 import { APIKeyManager, getApiKeysFromCookies } from './APIKeyManager';
@@ -17,9 +17,10 @@ import Cookies from '~/lib/auth/account-cookies';
 import * as Tooltip from '@radix-ui/react-tooltip';
 
 import styles from './BaseChat.module.scss';
+import homeStyles from './CreationHome.module.scss';
+import { appendCreationExample, CreationHomeIntro, CreationHomeLibrary } from './CreationHome';
 import { ExportChatButton } from '~/components/chat/chatExportAndImport/ExportChatButton';
 import { ImportButtons } from '~/components/chat/chatExportAndImport/ImportButtons';
-import { ExamplePrompts } from '~/components/chat/ExamplePrompts';
 import GitCloneButton from './GitCloneButton';
 
 import FilePreview from './FilePreview';
@@ -28,7 +29,6 @@ import { SpeechRecognitionButton } from '~/components/chat/SpeechRecognition';
 import type { ProviderInfo } from '~/types/model';
 import { ScreenshotStateManager } from './ScreenshotStateManager';
 import { toast } from 'react-toastify';
-import StarterTemplates from './StarterTemplates';
 import type { ActionAlert, SupabaseAlert, DeployAlert } from '~/types/actions';
 import DeployChatAlert from '~/components/deploy/DeployAlert';
 import ChatAlert from './ChatAlert';
@@ -37,8 +37,6 @@ import ProgressCompilation from './ProgressCompilation';
 import type { ProgressAnnotation } from '~/types/context';
 import type { ActionRunner } from '~/lib/runtime/action-runner';
 import { LOCAL_PROVIDERS } from '~/lib/stores/settings';
-import { SupabaseChatAlert } from '~/components/chat/SupabaseAlert';
-import { SupabaseConnection } from './SupabaseConnection';
 import { ExpoQrModal } from '~/components/workbench/ExpoQrModal';
 import { expoUrlAtom } from '~/lib/stores/qrCodeStore';
 import { useStore } from '@nanostores/react';
@@ -117,8 +115,6 @@ export const BaseChat = React.forwardRef<HTMLDivElement, BaseChatProps>(
       clearAlert,
       deployAlert,
       clearDeployAlert,
-      supabaseAlert,
-      clearSupabaseAlert,
       data,
       actionRunner,
     },
@@ -130,6 +126,8 @@ export const BaseChat = React.forwardRef<HTMLDivElement, BaseChatProps>(
     const [modelError, setModelError] = useState<string>();
     const [modelRetry, setModelRetry] = useState(0);
     const [isModelSettingsCollapsed, setIsModelSettingsCollapsed] = useState(false);
+    const [isHomeModelSettingsCollapsed, setIsHomeModelSettingsCollapsed] = useState(true);
+    const modelSettingsCollapsed = chatStarted ? isModelSettingsCollapsed : isHomeModelSettingsCollapsed;
     const [isListening, setIsListening] = useState(false);
     const [recognition, setRecognition] = useState<SpeechRecognition | null>(null);
     const [transcript, setTranscript] = useState('');
@@ -346,26 +344,24 @@ export const BaseChat = React.forwardRef<HTMLDivElement, BaseChatProps>(
     const baseChat = (
       <div
         ref={ref}
-        className={classNames(styles.BaseChat, 'relative flex h-full w-full overflow-hidden')}
+        className={classNames(styles.BaseChat, 'relative flex h-full w-full overflow-hidden', {
+          [homeStyles.HomeSurface]: !chatStarted,
+        })}
         data-chat-visible={showChat}
         data-chat-started={chatStarted}
       >
         <ClientOnly>{() => <Menu />}</ClientOnly>
         <div className="flex flex-col lg:flex-row overflow-y-auto w-full h-full">
-          <div className={classNames(styles.Chat, 'flex flex-col flex-grow lg:min-w-[var(--chat-min-width)] h-full')}>
-            {!chatStarted && (
-              <div id="intro" className={classNames(styles.Intro, 'max-w-chat mx-auto text-center px-4 lg:px-0')}>
-                <h1 className="text-3xl lg:text-6xl font-bold text-bolt-elements-textPrimary mb-4 animate-fade-in">
-                  鲸月 · 让想法成为网站
-                </h1>
-                <p className="text-md lg:text-xl mb-8 text-bolt-elements-textSecondary animate-fade-in animation-delay-200">
-                  基于 Bolt 的生成与预览，结合 Onlook 源码编辑。同一项目，边聊边改。
-                </p>
-              </div>
-            )}
+          <div
+            className={classNames(styles.Chat, 'flex flex-col flex-grow lg:min-w-[var(--chat-min-width)] h-full', {
+              [homeStyles.HomeChat]: !chatStarted,
+            })}
+          >
+            {!chatStarted && <CreationHomeIntro />}
             <StickToBottom
               className={classNames('pt-6 px-2 sm:px-6 relative', {
                 'h-full flex flex-col modern-scrollbar': chatStarted,
+                [homeStyles.InputStage]: !chatStarted,
               })}
               resize="smooth"
               initial="smooth"
@@ -386,6 +382,7 @@ export const BaseChat = React.forwardRef<HTMLDivElement, BaseChatProps>(
               <div
                 className={classNames('my-auto flex flex-col gap-2 w-full max-w-chat mx-auto z-prompt mb-6', {
                   'sticky bottom-2': chatStarted,
+                  [homeStyles.PromptWidth]: !chatStarted,
                 })}
               >
                 <div className="flex flex-col gap-2">
@@ -395,17 +392,7 @@ export const BaseChat = React.forwardRef<HTMLDivElement, BaseChatProps>(
                       clearAlert={() => clearDeployAlert?.()}
                       postMessage={(message: string | undefined) => {
                         sendMessage?.({} as any, message);
-                        clearSupabaseAlert?.();
-                      }}
-                    />
-                  )}
-                  {supabaseAlert && (
-                    <SupabaseChatAlert
-                      alert={supabaseAlert}
-                      clearAlert={() => clearSupabaseAlert?.()}
-                      postMessage={(message) => {
-                        sendMessage?.({} as any, message);
-                        clearSupabaseAlert?.();
+                        clearDeployAlert?.();
                       }}
                     />
                   )}
@@ -426,6 +413,7 @@ export const BaseChat = React.forwardRef<HTMLDivElement, BaseChatProps>(
                   className={classNames(
                     styles.Composer,
                     'relative bg-bolt-elements-background-depth-2 p-3 rounded-lg border border-bolt-elements-borderColor relative w-full max-w-chat mx-auto z-prompt',
+                    { [homeStyles.HomeComposer]: !chatStarted },
 
                     /*
                      * {
@@ -479,7 +467,7 @@ export const BaseChat = React.forwardRef<HTMLDivElement, BaseChatProps>(
                     )}
                     <ClientOnly>
                       {() => (
-                        <div className={isModelSettingsCollapsed ? 'hidden' : ''}>
+                        <div className={modelSettingsCollapsed ? 'hidden' : ''}>
                           <ModelSelector
                             key={provider?.name + ':' + modelList.length}
                             model={model}
@@ -528,10 +516,17 @@ export const BaseChat = React.forwardRef<HTMLDivElement, BaseChatProps>(
                     className={classNames(
                       styles.ComposerInput,
                       'relative shadow-xs border border-bolt-elements-borderColor backdrop-blur rounded-lg',
+                      { [homeStyles.HomeInput]: !chatStarted },
                     )}
                   >
+                    {!chatStarted && (
+                      <label htmlFor="creation-request" className={homeStyles.InputLabel}>
+                        你想创建什么？
+                      </label>
+                    )}
                     <textarea
                       ref={textareaRef}
+                      id={!chatStarted ? 'creation-request' : undefined}
                       aria-label="需求输入"
                       className={classNames(
                         'w-full pl-4 pt-4 pr-16 outline-none resize-none text-bolt-elements-textPrimary placeholder-bolt-elements-textTertiary bg-transparent text-sm',
@@ -595,10 +590,14 @@ export const BaseChat = React.forwardRef<HTMLDivElement, BaseChatProps>(
                       }}
                       onPaste={handlePaste}
                       style={{
-                        minHeight: TEXTAREA_MIN_HEIGHT,
+                        minHeight: chatStarted ? TEXTAREA_MIN_HEIGHT : 136,
                         maxHeight: TEXTAREA_MAX_HEIGHT,
                       }}
-                      placeholder="描述你想创建的页面，或继续提出修改要求…"
+                      placeholder={
+                        chatStarted
+                          ? '描述你想创建的页面，或继续提出修改要求…'
+                          : '比如，一个能制定活动方案的营销 Agent，或一个清晰好用的供应链管理页面…'
+                      }
                       translate="no"
                     />
                     <ClientOnly>
@@ -657,15 +656,21 @@ export const BaseChat = React.forwardRef<HTMLDivElement, BaseChatProps>(
                           title="Model Settings"
                           className={classNames('transition-all flex items-center gap-1', {
                             'bg-bolt-elements-item-backgroundAccent text-bolt-elements-item-contentAccent':
-                              isModelSettingsCollapsed,
+                              modelSettingsCollapsed,
                             'bg-bolt-elements-item-backgroundDefault text-bolt-elements-item-contentDefault':
-                              !isModelSettingsCollapsed,
+                              !modelSettingsCollapsed,
                           })}
-                          onClick={() => setIsModelSettingsCollapsed(!isModelSettingsCollapsed)}
+                          onClick={() => {
+                            if (chatStarted) {
+                              setIsModelSettingsCollapsed(!isModelSettingsCollapsed);
+                            } else {
+                              setIsHomeModelSettingsCollapsed(!isHomeModelSettingsCollapsed);
+                            }
+                          }}
                           disabled={!providerList || providerList.length === 0}
                         >
-                          <div className={`i-ph:caret-${isModelSettingsCollapsed ? 'right' : 'down'} text-lg`} />
-                          {isModelSettingsCollapsed ? (
+                          <div className={`i-ph:caret-${modelSettingsCollapsed ? 'right' : 'down'} text-lg`} />
+                          {modelSettingsCollapsed ? (
                             <span className={classNames(styles.ModelLabel, 'text-xs')}>
                               {modelList.find((item) => item.name === model)?.label || model}
                             </span>
@@ -681,7 +686,6 @@ export const BaseChat = React.forwardRef<HTMLDivElement, BaseChatProps>(
                           换行
                         </div>
                       ) : null}
-                      <SupabaseConnection />
                       <ExpoQrModal open={qrModalOpen} onClose={() => setQrModalOpen(false)} />
                     </div>
                   </div>
@@ -690,23 +694,42 @@ export const BaseChat = React.forwardRef<HTMLDivElement, BaseChatProps>(
             </StickToBottom>
             <div className="flex flex-col justify-center">
               {!chatStarted && (
-                <div className="flex justify-center gap-2">
-                  {ImportButtons(importChat)}
-                  <GitCloneButton importChat={importChat} />
-                </div>
+                <>
+                  <div className={homeStyles.BelowPrompt}>
+                    <img
+                      className={homeStyles.Mascot}
+                      src="/images/creation-whale.png"
+                      width="156"
+                      height="134"
+                      alt=""
+                      aria-hidden="true"
+                      decoding="async"
+                    />
+                    <details className={homeStyles.Imports}>
+                      <summary>
+                        <span className="i-ph:upload-simple" aria-hidden="true" />
+                        导入项目或体验示例
+                        <span className="i-ph:caret-down" aria-hidden="true" />
+                      </summary>
+                      <div className={homeStyles.ImportControls}>
+                        {ImportButtons(importChat)}
+                        <GitCloneButton importChat={importChat} />
+                      </div>
+                    </details>
+                  </div>
+                  <CreationHomeLibrary
+                    templates={STARTER_TEMPLATES}
+                    disabled={isStreaming || !handleInputChange}
+                    onSelectPrompt={(prompt) => {
+                      handleInputChange?.({
+                        target: { value: appendCreationExample(input, prompt) },
+                      } as React.ChangeEvent<HTMLTextAreaElement>);
+                      textareaRef?.current?.focus({ preventScroll: true });
+                      textareaRef?.current?.scrollIntoView({ block: 'center', behavior: 'auto' });
+                    }}
+                  />
+                </>
               )}
-              <div className="flex flex-col gap-5">
-                {!chatStarted &&
-                  ExamplePrompts((event, messageInput) => {
-                    if (isStreaming) {
-                      handleStop?.();
-                      return;
-                    }
-
-                    handleSendMessage?.(event, messageInput);
-                  })}
-                {!chatStarted && <StarterTemplates />}
-              </div>
             </div>
           </div>
           <ClientOnly>

@@ -1,6 +1,6 @@
 # 鲸月工作台：阿里云私有体验部署
 
-这是 **当前 Bolt / Onlook / 百炼工作台** 的独立部署入口，不是旧 `atoms-demo` 制品，也不是公开多租户生产系统。现有受限内测已部署至香港 FC，域名、HTTPS 和项目持久化已接通；2026-09-28 已切换独立账号注册登录，当前账号模式配置以 [ACCOUNTS.md](ACCOUNTS.md) 为准。下方 Basic 配置保留用于理解旧入口，不能当作当前多用户部署方案。验收范围及未完成项见根目录 [JINGYUE.md](../JINGYUE.md)。
+这是 **当前鲸月 / Onlook / 百炼工作台** 的独立部署入口，不是旧 `atoms-demo` 制品，也不是公开多租户生产系统。现有受限内测已部署至香港 FC，域名、HTTPS 和项目持久化已接通；2026-09-28 已切换独立账号注册登录，当前账号模式配置以 [ACCOUNTS.md](ACCOUNTS.md) 为准。下方 Basic 配置保留用于理解旧入口，不能当作当前多用户部署方案。验收范围及未完成项见根目录 [JINGYUE.md](../JINGYUE.md)。
 
 ## 为什么单独加部署入口
 
@@ -77,3 +77,230 @@ node deployment/build.mjs
 - [FC 自定义域名](https://help.aliyun.com/en/functioncompute/configure-custom-domain-names)：香港及中国大陆以外域名绑定不需 ICP；默认测试域名可能强制附件下载。
 - [FC 计费](https://help.aliyun.com/zh/functioncompute/billing-overview-of-fc)：无最小实例且无请求不计计算费；计算/CU 和公网出流量分项计费，试用额度耗尽后转按量。
 - [WebContainer 响应头](https://webcontainers.io/guides/configuring-headers) 与 [商业使用许可](https://webcontainers.io/enterprise)：原型/POC 不要求商业许可，但面向商业客户/员工的生产使用需核实授权，不能因为宿主 MIT 许可就自动视为可商用。
+# Local OpenCode experiment (not enabled in production)
+
+Restore point before this experiment: `263be1b9190172ae7fd2b5d6fa2ef04244632da0`
+on `jingyue/main`. The experiment lives on `codex/opencode-serve-poc`; keep the
+working tree and any uncommitted work before switching branches.
+
+The optional local adapter uses **OpenCode 1.18.34 `serve`** in a disposable
+Docker container for each candidate. It replaces generation/repair only;
+intent routing, plan approval, editor layout, project persistence and the
+browser preview remain the existing implementation. This is not yet a remote
+preview service, nor persistent OpenCode agent memory across tasks.
+
+```sh
+docker build -t jingyue-opencode:1.18.34 deployment/opencode
+pnpm build
+JINGYUE_LOCAL_AGENT=opencode JINGYUE_LOCAL_PREVIEW_PORT=9027 \
+  JINGYUE_LOCAL_MODEL_REQUESTS=100 node deployment/preview-managed.mjs
+```
+
+Use the local preview account and select `qwen3-coder-next`. Other models use
+the existing engine. Do not expose this local experiment publicly. Remove
+`JINGYUE_LOCAL_AGENT` and restart to return to the existing engine; the normal
+production entrypoint does not instantiate an OpenCode runner.
+
+Security/behavior boundaries:
+
+- Only a validated candidate directory is mounted, never the workbench repo,
+  Docker socket, host home, SSH credentials or database configuration.
+- Containers run without root/capabilities, with CPU, memory and PID limits.
+  This local Docker boundary is not a substitute for a production tenant
+  isolation and network-egress design.
+- Model credentials stay in the workbench process. The agent receives a
+  revocable task token for a loopback model proxy. Each upstream model request
+  charges the signed-in account's normal quota; task maximum is 16 calls and
+  80,000 output tokens across retries (not a monetary hard cap). Each call
+  reserves its maximum, then settles against valid provider usage only after
+  a complete stream; interrupted/missing-usage calls retain their reservation.
+- Agent tools may read/edit the candidate. The platform owns the fixed
+  install/typecheck/build commands and returns failures for agent repair;
+  shell tools are disabled to avoid duplicate checks and wasted model calls.
+  Sharing, external-directory access, subagents and arbitrary
+  web tools are disabled. These permissions supplement container isolation.
+- A completed model response is not success: the platform independently runs
+  typecheck/build, checks protected configuration, then returns a deterministic
+  diff. The existing workbench still validates it before replacing live files.
+- Cancellation revokes the task token and removes the exact task container.
+  Candidate files remain in private OS temporary directories for diagnosis;
+  the short-lived agent configuration file is removed. No user project is
+  deleted by experiment cleanup.
+
+Validation commands:
+
+```sh
+node --test deployment/opencode.test.mjs
+node deployment/opencode/smoke.mjs
+# Live synthetic marketing example; consumes the local test account quota:
+node deployment/opencode/acceptance.mjs --live
+```
+
+The smoke test runs real OpenCode tools with a synthetic model. Live acceptance
+uses synthetic source, not user project exports. Browser interaction/visual
+checks are separate from build and persistence checks.
+
+### Local acceptance record (2026-10-02)
+
+- Original implementation restore point was pushed before any adapter changes.
+- Application regression: 536 passed. Deployment regression: 90 passed.
+  TypeScript checking and the production build passed; lint has warnings but
+  no errors in the changed frontend files.
+- Real OpenCode + synthetic model: read/edit, independent typecheck/build,
+  and a deliberately broken candidate followed by successful repair passed.
+- Real Bailian test, synthetic marketing page: first generation used 12 model
+  calls; adding channel selection/filtering used 14. Both passed independent
+  typecheck/build and source checkpoint read-back (local test database).
+- Browser acceptance then caught an orphan stylesheet: CSS existed but was
+  never imported. Entry-graph style checks now return that failure to the agent
+  before candidate acceptance; they are not a replacement for visual QA.
+- A real request entered through the workbench conversation used OpenCode
+  successfully to connect the stylesheet, label demo data and disable placeholder
+  navigation. Candidate checks, browser compilation, preview and source save
+  all passed. In the preview, adding a 2,000-budget activity changed totals from
+  105,000 to 107,000; channel filtering, pause and resume passed.
+- After a full workbench refresh, the saved source, stylesheet and channel
+  controls restored and the styled preview reopened. The temporary activity
+  reset as explicitly described in the demo; this is not business-data
+  persistence validation.
+- Runtime-generated lockfiles stay in the browser project, not the editable
+  agent payload. This pilot uses fresh candidate installs with the pinned
+  framework versions; general lockfile-preserving execution is future work.
+- Earlier real attempts hit the agent budget. Reservations now settle against
+  trusted provider usage, rejected admissions do not count as provider usage,
+  and platform-owned checks avoid competing execution loops. This is a bounded
+  pilot result, not a claim that every project now succeeds or costs less.
+- Local OpenCode authentication uses a separate test Cookie namespace. Existing
+  production authentication is unchanged. Browser sandbox previews and business
+  data persistence are still separate concerns from the agent's candidate files.
+- No production deployment was performed. This is still a small synthetic
+  acceptance case, not a broad stability/performance verdict. Preview business
+  data is deliberately temporary; only conversation/source restoration was in
+  scope. Production tenant isolation, persistent agent sessions and moving the
+  preview off WebContainers are not implemented by this pilot.
+
+Provider usage reference: [Bailian streaming usage](https://www.alibabacloud.com/help/en/model-studio/stream).
+
+## Netlify personal-account static publishing (local implementation; disabled by default)
+
+This is separate from the legacy browser-token connector. Account-mode users use
+the project header's **发布网站** dialog. The workbench layout and model workflow
+are unchanged. This integration does not publish the workbench itself.
+
+### Setup and release gate
+
+1. Register a **Jingyue-owned** OAuth application in Netlify. Configure its client
+   ID; never borrow the Netlify CLI application's ID. The implementation uses
+   Netlify's official ticket authorization flow: users approve at Netlify and
+   the server exchanges the approved ticket. It never handles provider passwords.
+2. A schema owner applies `sql/005-publishing.sql`. Grant only SELECT, INSERT,
+   UPDATE and DELETE on `jingyue.publishing_state` to the existing runtime role.
+   Production startup does not run migrations or grant permissions.
+3. Configure `publishing.env.example` server-side, with a stable, random 32-byte
+   base64 encryption key. Local acceptance can use ignored `.publishing.local.env`.
+   Do not use `VITE_` variables, frontend storage, or put credentials in a repo.
+4. Connect a consenting test account, select its team and confirm public content
+   and use of that team's quota. Do not upgrade any plan automatically.
+5. Before enabling production: test actual authorization, first static deploy,
+   same-site update, binary assets, SPA subroute refresh, expired/revoked token,
+   interrupted upload/reconciliation and public access. Mock tests do not satisfy
+   this gate. No live account or real deployment has been verified by this code alone.
+
+### Scope and safeguards
+
+- Builds use a frozen, saved project revision in a separate temporary directory
+  **inside WebContainer**. The host/backend never executes generated app code.
+  Only React/Vite static output is supported, 300 files / 8 MiB per upload.
+  Install lifecycle scripts are disabled; packages requiring them are not supported
+  in this first version. Build/typecheck failures stop before uploading.
+- The backend derives identity from the session; stale-tab guards, origin checks,
+  project ownership, saved revision and accessible team are rechecked. The client
+  cannot submit remote site IDs, arbitrary URLs or platform tokens.
+- Tokens are AES-256-GCM encrypted with user/provider-bound associated data.
+  Netlify's consent grants create/manage access to projects across the user's
+  teams, not a provider-enforced single-project scope. The UI discloses this;
+  Jingyue's owner/project/team checks restrict what this integration will do,
+  but do not narrow the capability of a stolen provider token.
+  Local disconnect deletes the stored credential, not the website. Users must
+  also revoke the app on Netlify to revoke provider-side authorization. Changing
+  encryption keys requires an explicit re-encryption/reauthorization procedure.
+- Build files preserve bytes. Paths, total size, known credential patterns,
+  source maps, functions and workbench-only demo-storage dependencies are rejected.
+  This scan is a guardrail, not proof that user content contains no sensitive data.
+  A platform-owned SPA fallback and random release marker are added server-side.
+- Project-to-site binding and the current job persist in PostgreSQL. A lease
+  serializes job advancement. Unknown create responses are reconciled by the
+  deterministic site name or deployment title, **not replayed automatically**.
+  Ambiguous results that cannot be reconciled require checking Netlify; no blind
+  retry/new-site fallback is offered. Old legacy metadata is not a trusted binding.
+- Closing the dialog pauses local advancement. An already submitted provider
+  request can still complete; reopening queries persisted state. It is not a
+  guaranteed remote cancel. Successful/failed terminal jobs discard artifact bytes.
+- Netlify `ready` is shown separately from public availability. The server probes
+  a tiny generated release marker at the allowlisted HTTPS default domain without
+  credentials/redirects; only a matching marker counts as public validation.
+  Private-default platform settings may require the user's action in Netlify.
+- Independent business storage, SSR/functions, custom domains, Git deployment,
+  paid upgrades, template imports and Vercel/Alibaba adapters are not implemented
+  by this first publishing slice. Workbench-preview Supabase data does not
+  automatically work in a standalone website.
+
+References: [Netlify API](https://open-api.netlify.com/),
+[official ticket authorization URL](https://github.com/netlify/cli/blob/main/src/utils/login-url.ts),
+[deploy methods](https://docs.netlify.com/deploy/create-deploys/).
+
+### Local publishing checks (2026-10-03)
+
+- Application regression: 581 passed; deployment regression: 109 passed.
+  The new publishing coverage consists of 15 server tests and 10 browser-logic/
+  component tests. TypeScript and production build passed. Changed frontend
+  files have no lint errors (six empty test/log-sink warnings remain).
+- The gateway/OpenCode/publishing subset was rerun after the credential-scan
+  fix: 47 passed. The release package passed its credential scan. The scanner's
+  own public database-URL placeholder was no longer embedded as a literal;
+  detection of actual database credentials and secrets was not relaxed.
+- Netlify responses are mocked; database behavior is exercised with local
+  PostgreSQL-compatible PGlite and UI behavior with jsdom. Real WebContainer
+  publishing builds, real OAuth consent, remote sites and public browser access
+  remain unverified. No production deployment, cloud migration, paid resource,
+  real OAuth application or real Netlify site was created by these checks.
+
+### Real Netlify acceptance (2026-10-04)
+
+- Verification: 583 application tests, 114 deployment tests, TypeScript and
+  production build passed. The final package passed its secret scan and 74
+  packaged-server checks with synthetic credentials/model transport (zero real
+  model or database calls in that packaged check). This is macOS/Node acceptance,
+  not a Linux or FC deployment claim.
+- Registered the owned Jingyue OAuth application. The user completed Netlify's
+  consent page; local server-side ticket exchange and team lookup succeeded.
+  The encrypted credential stays in the local test database. The private vault
+  configuration is Git-ignored and owner-readable only; no credentials are in
+  this document or in frontend bundles.
+- Used one synthetic React/Vite fixture on the loopback `9035` test server.
+  Real WebContainer installation/build produced six static artifacts including
+  a PNG and the server-added SPA redirect/release marker. No user project or
+  model request was involved. No paid upgrade was selected.
+- Found and fixed a real async upload defect: Netlify's later `required` array
+  is not a reliable remaining-work queue. The server now persists the prepared
+  manifest before uploading, advances only after successful immutable PUTs,
+  and resumes the same deploy after an uncertain response or process restart.
+  Preparing responses cannot initialize an empty queue. Legacy partial jobs
+  recover by re-uploading their immutable artifacts to the existing deploy.
+- The first remote deploy finished after recovery. A second build from saved
+  revision 2 updated **the same site and URL**, verified in a real browser by
+  its changed heading. The counter, PNG decoding, `/details` navigation and
+  direct refresh passed while signed in to Netlify.
+- The team creates private sites by default. The initial anonymous check
+  correctly reported `access_unverified`. After explicit user approval, only
+  the synthetic site's production deployment was made public. Anonymous
+  `/details` access now returns HTTP 200 and the updated page renders normally.
+  No team-wide protection or deploy-preview protection was changed.
+- The local dialog now explains private-default protection and links to the
+  exact Netlify project settings. Stopping local work reports a readable status
+  rather than the browser's raw AbortError; it does not delete remote resources.
+- Formal Jingyue production remains unchanged. Rollout still needs the schema
+  migration, persistent encrypted-credential configuration and cloud-runtime
+  acceptance; local success is not production deployment. Standalone business
+  storage, generated backend functions, custom domains and the second hosting
+  provider remain outside this static-publishing iteration.

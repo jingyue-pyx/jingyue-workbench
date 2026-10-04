@@ -82,7 +82,7 @@ const cloud = (document: any, state = 'cloud') => ({
   revision: 1,
   document,
   state,
-  deletedAt: null,
+  deletedAt: null as string | null,
 });
 const source = (content: string) => ({ '/home/project/src/App.jsx': { type: 'file', content, isBinary: false } });
 
@@ -128,6 +128,89 @@ function savedSourceProject() {
 }
 
 describe('progressive project restoration', () => {
+  it('shows cached history before the server responds, but only restores the authoritative source', async () => {
+    const remote = deferred<ReturnType<typeof cloud>>();
+    const write = deferred();
+    const cached = savedSourceProject();
+    const fresh = savedSourceProject();
+    fresh.document.messages = [
+      { id: 'answer', role: 'assistant', content: '最新服务端对话', annotations: ['managed-run'] },
+    ];
+    fresh.document.snapshot.files = source('newest source');
+    state.route = { id: cloudId };
+    state.load.mockImplementationOnce((_id, _remoteOnly, onCached) => {
+      onCached(cached);
+      return remote.promise;
+    });
+    state.writeFile.mockReturnValue(write.promise);
+
+    const { result } = renderHook(() => useChatHistory());
+    await waitFor(() => expect(result.current.conversationMessages).toEqual(cached.document.messages));
+    expect(result.current.conversationCached).toBe(true);
+    expect(result.current.ready).toBe(false);
+    expect(state.writeFile).not.toHaveBeenCalled();
+    expect(projectPersistence.get()).toBe('idle');
+    await expect(result.current.storeMessageHistory(messages)).rejects.toThrow('正在恢复项目代码');
+    expect(state.save).not.toHaveBeenCalled();
+
+    await act(async () => remote.resolve(fresh));
+    await waitFor(() => expect(result.current.conversationMessages).toEqual(fresh.document.messages));
+    expect(result.current.conversationCached).toBe(false);
+    expect(result.current.ready).toBe(false);
+    expect(state.writeFile).toHaveBeenCalledWith('src/App.jsx', 'newest source');
+    await act(async () => write.resolve());
+    await waitFor(() => expect(result.current.ready).toBe(true));
+  });
+
+  it.each(['rejected', 'deleted'])(
+    'withdraws cached history when the project is %s without writing source',
+    async (outcome) => {
+      const remote = deferred<ReturnType<typeof cloud>>();
+      state.route = { id: cloudId };
+      state.load.mockImplementationOnce((_id, _remoteOnly, onCached) => {
+        onCached(savedSourceProject());
+        return remote.promise;
+      });
+
+      const { result } = renderHook(() => useChatHistory());
+      await waitFor(() => expect(result.current.conversationCached).toBe(true));
+      await act(async () => {
+        if (outcome === 'rejected') {
+          remote.reject(new Error('请重新登录'));
+        } else {
+          remote.resolve({ ...savedSourceProject(), deletedAt: 'today' });
+        }
+      });
+      await waitFor(() => expect(result.current.loadError).not.toBe(''));
+      expect(result.current.conversationMessages).toBeUndefined();
+      expect(result.current.conversationCached).toBe(false);
+      expect(state.writeFile).not.toHaveBeenCalled();
+      expect(state.save).not.toHaveBeenCalled();
+    },
+  );
+
+  it('ignores late cached and server history from an abandoned route', async () => {
+    const remote = deferred<ReturnType<typeof cloud>>();
+    let showCached!: (project: ReturnType<typeof cloud>) => void;
+    state.route = { id: cloudId };
+    state.load.mockImplementationOnce((_id, _remoteOnly, onCached) => {
+      showCached = onCached;
+      return remote.promise;
+    });
+
+    const { result, rerender } = renderHook(() => useChatHistory());
+    state.route = {};
+    rerender();
+    await act(async () => {
+      showCached(savedSourceProject());
+      remote.resolve(savedSourceProject());
+    });
+    expect(result.current.conversationMessages).toBeUndefined();
+    expect(result.current.conversationCached).toBe(false);
+    expect(result.current.ready).toBe(true);
+    expect(state.writeFile).not.toHaveBeenCalled();
+  });
+
   it('shows saved conversation before source writes finish, without enabling execution or saving', async () => {
     const write = deferred();
     const project = savedSourceProject();

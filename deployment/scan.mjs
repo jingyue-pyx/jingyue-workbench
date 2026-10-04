@@ -13,7 +13,10 @@ const grammarWordHashes = new Set([
 const credentialPattern =
   /sb_secret_[A-Za-z0-9_-]{20,}|sk-[A-Za-z0-9_-]{20,}|LTAI[A-Za-z0-9]{12,}|-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----/g;
 const databaseCredentialPattern = /postgres(?:ql)?:\/\/[^\s/:@]+:[^\s/@]+@[^\s/]+/g;
-const databaseTemplate = 'postgresql://jingyue_app:<percent-encoded-password>@<official-rds-host>:5432';
+// Runtime candidate validation imports this scanner too. Build the public
+// example without embedding a credential-shaped URL in the server bundle;
+// keep the exact, path-specific exception (never allow arbitrary DB URLs).
+const databaseTemplate = ['postgresql:', '//jingyue_app:<percent-encoded-password>@<official-rds-host>:5432'].join('');
 
 export function hasCredentialLiteral(text, path) {
   if (
@@ -37,7 +40,7 @@ export async function inspectRelease(root) {
       const metadata = await lstat(path);
       if (
         metadata.isSymbolicLink() ||
-        /^(\.env|\.supabase\.local\.env|\.dev\.vars|\.git|node_modules)|百炼配置|\.(pem|key|node|map)$/i.test(name)
+        /^(\.env|\.supabase\.local\.env|\.publishing\.local\.env|\.dev\.vars|\.git|node_modules)|百炼配置|\.(pem|key|node|map)$/i.test(name)
       ) {
         throw new Error('Unexpected sensitive/platform-specific file in release.');
       }

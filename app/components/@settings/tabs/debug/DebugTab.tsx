@@ -721,7 +721,7 @@ export default function DebugTab() {
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `bolt-debug-info-${new Date().toISOString()}.json`;
+      a.download = `jingyue-debug-info-${new Date().toISOString()}.json`;
       document.body.appendChild(a);
       a.click();
       window.URL.revokeObjectURL(url);
@@ -764,7 +764,7 @@ export default function DebugTab() {
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `bolt-debug-info-${new Date().toISOString()}.csv`;
+      a.download = `jingyue-debug-info-${new Date().toISOString()}.csv`;
       document.body.appendChild(a);
       a.click();
       window.URL.revokeObjectURL(url);
@@ -1095,7 +1095,7 @@ export default function DebugTab() {
       addFooters();
 
       // Save the PDF
-      doc.save(`bolt-debug-info-${new Date().toISOString()}.pdf`);
+      doc.save(`jingyue-debug-info-${new Date().toISOString()}.pdf`);
       toast.success('Debug information exported as PDF');
     } catch (error) {
       console.error('Failed to export PDF:', error);
@@ -1126,7 +1126,7 @@ export default function DebugTab() {
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `bolt-debug-info-${new Date().toISOString()}.txt`;
+      a.download = `jingyue-debug-info-${new Date().toISOString()}.txt`;
       document.body.appendChild(a);
       a.click();
       window.URL.revokeObjectURL(url);

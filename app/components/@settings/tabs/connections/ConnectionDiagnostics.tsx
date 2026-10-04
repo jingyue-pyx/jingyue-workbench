@@ -40,7 +40,6 @@ export default function ConnectionDiagnostics() {
         githubConnection: accountStorage.getItem('github_connection'),
         netlifyConnection: accountStorage.getItem('netlify_connection'),
         vercelConnection: accountStorage.getItem('vercel_connection'),
-        supabaseConnection: accountStorage.getItem('supabase_connection'),
       };
 
       // Get diagnostic data from server
@@ -119,18 +118,6 @@ export default function ConnectionDiagnostics() {
         }
       }
 
-      // === Supabase Checks ===
-      const supabaseConnectionParsed = safeJsonParse(localStorageChecks.supabaseConnection);
-      const supabaseUrl = supabaseConnectionParsed?.projectUrl;
-      const supabaseAnonKey = supabaseConnectionParsed?.anonKey;
-      let supabaseCheck = null;
-
-      if (supabaseUrl && supabaseAnonKey) {
-        supabaseCheck = { ok: true, status: 200, message: 'URL and Key present in localStorage' };
-      } else {
-        supabaseCheck = { ok: false, message: 'URL or Key missing in localStorage' };
-      }
-
       // Compile results
       const results = {
         timestamp: new Date().toISOString(),
@@ -138,17 +125,14 @@ export default function ConnectionDiagnostics() {
           hasGithubConnection: Boolean(localStorageChecks.githubConnection),
           hasNetlifyConnection: Boolean(localStorageChecks.netlifyConnection),
           hasVercelConnection: Boolean(localStorageChecks.vercelConnection),
-          hasSupabaseConnection: Boolean(localStorageChecks.supabaseConnection),
           githubConnectionParsed,
           netlifyConnectionParsed,
           vercelConnectionParsed,
-          supabaseConnectionParsed,
         },
         apiEndpoints: {
           github: githubResults,
           netlify: netlifyUserCheck,
           vercel: vercelUserCheck,
-          supabase: supabaseCheck,
         },
         serverDiagnostics,
       };
@@ -168,15 +152,10 @@ export default function ConnectionDiagnostics() {
         toast.error('Vercel API connection is failing. Try reconnecting.');
       }
 
-      if (results.localStorage.hasSupabaseConnection && supabaseCheck && !supabaseCheck.ok) {
-        toast.warning('Supabase connection check failed or missing details. Verify settings.');
-      }
-
       if (
         !results.localStorage.hasGithubConnection &&
         !results.localStorage.hasNetlifyConnection &&
-        !results.localStorage.hasVercelConnection &&
-        !results.localStorage.hasSupabaseConnection
+        !results.localStorage.hasVercelConnection
       ) {
         toast.info('No connection data found in browser storage.');
       }
@@ -226,18 +205,6 @@ export default function ConnectionDiagnostics() {
     } catch (error) {
       console.error('Error clearing Vercel data:', error);
       toast.error('Failed to clear Vercel connection data');
-    }
-  };
-
-  // Helper to reset Supabase connection
-  const resetSupabaseConnection = () => {
-    try {
-      accountStorage.removeItem('supabase_connection');
-      toast.success('Supabase connection data cleared. Please refresh the page and reconnect.');
-      setDiagnosticResults(null);
-    } catch (error) {
-      console.error('Error clearing Supabase data:', error);
-      toast.error('Failed to clear Supabase connection data');
     }
   };
 
@@ -440,68 +407,6 @@ export default function ConnectionDiagnostics() {
             </div>
           )}
         </div>
-
-        {/* Supabase Connection Card */}
-        <div className="p-4 rounded-lg bg-bolt-elements-background dark:bg-bolt-elements-background-depth-2 border border-bolt-elements-borderColor dark:border-bolt-elements-borderColor hover:border-bolt-elements-borderColorActive/70 dark:hover:border-bolt-elements-borderColorActive/70 transition-all duration-200 h-[180px] flex flex-col">
-          <div className="flex items-center gap-2">
-            <div className="i-si:supabase text-bolt-elements-item-contentAccent dark:text-bolt-elements-item-contentAccent w-4 h-4" />
-            <div className="text-sm font-medium text-bolt-elements-textPrimary dark:text-bolt-elements-textPrimary">
-              Supabase Connection
-            </div>
-          </div>
-          {diagnosticResults ? (
-            <>
-              <div className="flex items-center gap-2 mt-2">
-                <span
-                  className={classNames(
-                    'text-xl font-semibold',
-                    diagnosticResults.localStorage.hasSupabaseConnection
-                      ? 'text-green-500 dark:text-green-400'
-                      : 'text-red-500 dark:text-red-400',
-                  )}
-                >
-                  {diagnosticResults.localStorage.hasSupabaseConnection ? 'Configured' : 'Not Configured'}
-                </span>
-              </div>
-              {diagnosticResults.localStorage.hasSupabaseConnection && (
-                <>
-                  <div className="text-xs text-bolt-elements-textSecondary dark:text-bolt-elements-textSecondary mt-2 flex items-center gap-1.5 truncate">
-                    <div className="i-ph:link w-3.5 h-3.5 text-bolt-elements-item-contentAccent dark:text-bolt-elements-item-contentAccent flex-shrink-0" />
-                    Project URL: {diagnosticResults.localStorage.supabaseConnectionParsed?.projectUrl || 'N/A'}
-                  </div>
-                  <div className="text-xs text-bolt-elements-textSecondary dark:text-bolt-elements-textSecondary mt-2 flex items-center gap-1.5">
-                    <div className="i-ph:check-circle w-3.5 h-3.5 text-bolt-elements-item-contentAccent dark:text-bolt-elements-item-contentAccent" />
-                    Config Status:{' '}
-                    <Badge
-                      variant={diagnosticResults.apiEndpoints.supabase?.ok ? 'default' : 'destructive'}
-                      className="ml-1"
-                    >
-                      {diagnosticResults.apiEndpoints.supabase?.ok ? 'OK' : 'Check Failed'}
-                    </Badge>
-                  </div>
-                </>
-              )}
-              {!diagnosticResults.localStorage.hasSupabaseConnection && (
-                <Button
-                  onClick={() => window.location.reload()}
-                  variant="outline"
-                  size="sm"
-                  className="mt-auto self-start hover:bg-bolt-elements-item-backgroundActive/10 hover:text-bolt-elements-textPrimary dark:hover:bg-bolt-elements-item-backgroundActive/10 dark:hover:text-bolt-elements-textPrimary transition-colors"
-                >
-                  <div className="i-ph:plug w-3.5 h-3.5 mr-1" />
-                  Configure Now
-                </Button>
-              )}
-            </>
-          ) : (
-            <div className="flex items-center justify-center h-full">
-              <div className="text-sm text-bolt-elements-textSecondary dark:text-bolt-elements-textSecondary flex items-center gap-2">
-                <div className="i-ph:info w-4 h-4" />
-                Run diagnostics to check connection status
-              </div>
-            </div>
-          )}
-        </div>
       </div>
 
       {/* Action Buttons */}
@@ -548,16 +453,6 @@ export default function ConnectionDiagnostics() {
         >
           <div className="i-si:vercel w-4 h-4" />
           Reset Vercel
-        </Button>
-
-        <Button
-          onClick={resetSupabaseConnection}
-          disabled={isRunning || !diagnosticResults?.localStorage.hasSupabaseConnection}
-          variant="outline"
-          className="flex items-center gap-2 hover:bg-bolt-elements-item-backgroundActive/10 hover:text-bolt-elements-textPrimary dark:hover:bg-bolt-elements-item-backgroundActive/10 dark:hover:text-bolt-elements-textPrimary transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-        >
-          <div className="i-si:supabase w-4 h-4" />
-          Reset Supabase
         </Button>
       </div>
 

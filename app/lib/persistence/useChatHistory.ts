@@ -60,7 +60,7 @@ export function useChatHistory({ restore = true }: { restore?: boolean } = {}) {
   const [loadError, setLoadError] = useState('');
   const routeKey = `${mixedId || ''}?${searchParams.toString()}`;
   const [loadedKey, setLoadedKey] = useState('');
-  const [conversation, setConversation] = useState<{ key: string; messages: Message[] }>();
+  const [conversation, setConversation] = useState<{ key: string; messages: Message[]; cached?: boolean }>();
   const restoring = useRef(restore && !!mixedId);
   const archived = useRef<Message[]>([]);
   const current = useRef<ProjectDocument>();
@@ -171,6 +171,9 @@ export function useChatHistory({ restore = true }: { restore?: boolean } = {}) {
     setConversation(undefined);
     restoring.current = !!mixedId;
     setLoadedKey(routeKey);
+    description.set(undefined);
+    activeProjectState.set(undefined);
+    projectPersistence.set('idle');
 
     if (!mixedId) {
       chatId.set(undefined);
@@ -192,7 +195,19 @@ export function useChatHistory({ restore = true }: { restore?: boolean } = {}) {
       let canonicalId = mixedId;
 
       if (isProjectId(mixedId)) {
-        const project = await projects.load(mixedId);
+        const project = await projects.load(mixedId, false, (cached) => {
+          if (cancelled || searchParams.has('rewindTo')) {
+            return;
+          }
+
+          /*
+           * The page was authenticated by the gateway and the cache is scoped
+           * to that account. Show history only, never execute cached artifacts
+           * or save against an unverified revision while refreshing remotely.
+           */
+          description.set(cached.document.title);
+          setConversation({ key: routeKey, messages: cached.document.messages, cached: true });
+        });
 
         if (cancelled) {
           return;
@@ -345,6 +360,13 @@ export function useChatHistory({ restore = true }: { restore?: boolean } = {}) {
 
         // A sandbox restore failure is not evidence that cloud saving failed.
         if (!conversationLoaded) {
+          /*
+           * Rejected ownership, expired sessions and deleted projects must not
+           * leave the optimistic cached history visible after the response.
+           */
+          setConversation(undefined);
+          description.set(undefined);
+          activeProjectState.set(undefined);
           projectPersistence.set('error');
         }
       }
@@ -360,6 +382,7 @@ export function useChatHistory({ restore = true }: { restore?: boolean } = {}) {
     ready: !restore || !mixedId || (loadedKey === routeKey && ready),
     loadError: loadedKey === routeKey ? loadError : '',
     conversationMessages: conversation?.key === routeKey ? conversation.messages : undefined,
+    conversationCached: conversation?.key === routeKey && conversation.cached === true,
     initialMessages,
     updateChatMestaData: (metadata: IChatMetadata) =>
       enqueue(async () => {

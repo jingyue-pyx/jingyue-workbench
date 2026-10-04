@@ -8,21 +8,26 @@ import messageStyles from './Messages.module.scss';
 /** Display only: no action parser, approval controls, editor or autosave. */
 export function ProjectLoadingView({
   messages,
+  cached = false,
   error,
   onRetry,
 }: {
   messages?: Message[];
+  cached?: boolean;
   error?: string;
   onRetry: () => void;
 }) {
   const conversationReady = messages !== undefined;
-  const title = conversationReady
-    ? error
-      ? '会话已恢复，代码暂未加载'
-      : '会话已恢复，正在加载代码…'
-    : error
-      ? '会话暂未恢复'
-      : '正在恢复会话…';
+  const title =
+    cached && conversationReady
+      ? '已显示本机历史，正在同步最新内容…'
+      : conversationReady
+        ? error
+          ? '会话已恢复，代码暂未加载'
+          : '会话已恢复，正在加载代码…'
+        : error
+          ? '会话暂未恢复'
+          : '正在恢复会话…';
 
   return (
     <div className={styles.layout} data-conversation-ready={conversationReady}>
@@ -30,9 +35,11 @@ export function ProjectLoadingView({
         <div className={styles.status} role={error ? 'alert' : 'status'}>
           <h2>{title}</h2>
           <p>
-            {conversationReady
-              ? '你可以先查看历史对话。代码恢复后将继续启动预览，无需重新生成。'
-              : '先加载历史对话，再恢复代码与预览。'}
+            {cached && conversationReady
+              ? '可以先查看上次保存的对话。最新内容确认后，再恢复代码与预览。'
+              : conversationReady
+                ? '你可以先查看历史对话。代码恢复后将继续启动预览，无需重新生成。'
+                : '先加载历史对话，再恢复代码与预览。'}
           </p>
           {error && (
             <>
@@ -72,7 +79,9 @@ export function ProjectLoadingView({
           <span className={styles.codeTitle}>代码与预览</span>
           <div className={styles.placeholder}>
             <span className="i-ph:code text-2xl" aria-hidden="true" />
-            <p>{error ? '代码加载暂未完成' : '正在恢复源码与运行环境…'}</p>
+            <p>
+              {error ? '代码加载暂未完成' : cached ? '正在同步项目，随后恢复代码与预览…' : '正在恢复源码与运行环境…'}
+            </p>
             <span>历史对话已在左侧显示，已保存的源码保留。</span>
           </div>
         </section>

@@ -28,6 +28,10 @@ export function runMessage(
   }
 
   if (state.phase === 'failed') {
+    if ((state.detail || '').startsWith('OpenCode ')) {
+      return `${safeDiagnostic(state.detail || '').slice(0, 500)}\n\n当前源码与预览保留；可继续说明要修改的功能，或在执行环境恢复后重试。`;
+    }
+
     if (/模型输出达到长度限制/.test(state.detail || '')) {
       return '单文件输出仍达到长度上限：系统已缩小批次并有限重试，不完整内容没有写入。已完成的候选批次保留在本机，现有源码和预览未替换；可以继续要求拆分大组件后修改。';
     }
