@@ -12,13 +12,24 @@ const mock = vi.hoisted(() => {
     document: { snapshot: { files: {} } },
   };
 
-  return { project, request: vi.fn(), build: vi.fn(), unsaved: new Set<string>(), streaming: false };
+  return {
+    project,
+    request: vi.fn(),
+    build: vi.fn(),
+    unsaved: new Set<string>(),
+    streaming: false,
+    container: Promise.resolve({}),
+  };
 });
 vi.mock('@nanostores/react', () => ({ useStore: (store: { get: () => unknown }) => store.get() }));
 vi.mock('~/lib/persistence/projects', () => ({ activeProjectState: { get: () => mock.project } }));
 vi.mock('~/lib/stores/workbench', () => ({ workbenchStore: { unsavedFiles: { get: () => mock.unsaved } } }));
 vi.mock('~/lib/stores/streaming', () => ({ streamingState: { get: () => mock.streaming } }));
-vi.mock('~/lib/webcontainer', () => ({ webcontainer: Promise.resolve({}) }));
+vi.mock('~/lib/webcontainer', () => ({
+  get webcontainer() {
+    return mock.container;
+  },
+}));
 vi.mock('~/lib/publishing/build', () => ({ buildPublishArtifacts: mock.build }));
 vi.mock('~/lib/publishing/client', async (importOriginal) => ({
   ...(await importOriginal<typeof import('~/lib/publishing/client')>()),
@@ -30,6 +41,7 @@ import { PublishingDialog } from './PublishingDialog.client';
 beforeEach(() => {
   mock.unsaved.clear();
   mock.streaming = false;
+  mock.container = Promise.resolve({});
   mock.project.state = 'cloud';
   mock.request.mockReset();
   mock.build.mockReset();
@@ -69,6 +81,27 @@ const open = () => {
 };
 
 describe('account-mode publishing interaction', () => {
+  it('stops promptly while sandbox startup is still pending and never starts a late build', async () => {
+    connected();
+
+    let ready: (value: object) => void = () => undefined;
+    mock.container = new Promise((resolve) => {
+      ready = resolve;
+    });
+    open();
+    await screen.findByText('已连接 · Test user');
+    fireEvent.click(screen.getByRole('checkbox'));
+
+    const publish = screen.getByRole('button', { name: '构建并发布已保存版本' });
+    await waitFor(() => expect((publish as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(publish);
+    fireEvent.click(await screen.findByRole('button', { name: '停止本机操作' }));
+    await screen.findByText('已停止本机后续操作；已提交的远端发布未删除，可以稍后继续查询。');
+    ready({});
+    await Promise.resolve();
+    expect(mock.build).not.toHaveBeenCalled();
+    expect(mock.request.mock.calls.some(([body]) => body?.action === 'prepare')).toBe(false);
+  });
   it('clearly disables unconfigured integration instead of offering token fields', async () => {
     mock.request.mockResolvedValue({ enabled: false, connected: false, message: '管理员尚未配置发布。' });
     open();

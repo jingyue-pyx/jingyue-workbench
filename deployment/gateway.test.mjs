@@ -99,6 +99,11 @@ test('release provenance is a safe digest header, never arbitrary configuration'
   const response = await fetch(valid.origin + '/healthz');
   assert.equal(response.headers.get('x-jingyue-release'), 'a'.repeat(64));
   assert.deepEqual(await response.json(), { status: 'ok' });
+  const head = await fetch(valid.origin + '/healthz', { method: 'HEAD', redirect: 'manual' });
+  assert.equal(head.status, 200);
+  assert.equal(head.headers.get('x-jingyue-release'), 'a'.repeat(64));
+  assert.equal(await head.text(), '');
+  assert.equal((await fetch(valid.origin + '/', { method: 'HEAD', redirect: 'manual' })).status, 401);
   const invalid = await fixture(t, { releaseId: 'private-canary' });
   assert.equal((await fetch(invalid.origin + '/healthz')).headers.get('x-jingyue-release'), null);
 });

@@ -2,6 +2,8 @@ import type { WebContainer, WebContainerProcess } from '@webcontainer/api';
 import type { Snapshot } from '~/lib/persistence/types';
 import { excludedProjectPath, relativeProjectPath } from '~/lib/persistence/project-document';
 import { publishingDelay } from './polling';
+import { validateStyles } from '~/lib/runtime/managed/styles';
+import { managedTypecheckConfig } from '~/lib/runtime/managed/typecheck';
 
 class PublishBuildError extends Error {
   constructor(
@@ -57,6 +59,8 @@ export function publishingSources(snapshot: Snapshot): Record<string, Uint8Array
   }
 
   if (
+    !manifest ||
+    typeof manifest !== 'object' ||
     !(manifest.devDependencies?.vite || manifest.dependencies?.vite) ||
     !manifest.dependencies?.react ||
     manifest.dependencies?.next ||
@@ -65,6 +69,13 @@ export function publishingSources(snapshot: Snapshot): Record<string, Uint8Array
   ) {
     throw new Error('首期仅支持 React + Vite 静态网页，不支持独立后端或 SSR。');
   }
+
+  // Bundling can succeed even if Tailwind directives never produced CSS.
+  validateStyles(
+    Object.fromEntries(
+      Object.entries(sources).filter((entry): entry is [string, string] => typeof entry[1] === 'string'),
+    ),
+  );
 
   return sources;
 }
@@ -215,8 +226,18 @@ export async function buildPublishArtifacts(
       }
     }
 
-    if (sources['tsconfig.json']) {
-      await run(['exec', '--no', '--', 'tsc', '--noEmit'], '检查类型');
+    if (Object.keys(sources).some((path) => /\.(?:ts|tsx)$/.test(path) && !path.endsWith('.d.ts'))) {
+      const manifest = JSON.parse(String(sources['package.json']));
+
+      if (!(manifest.dependencies?.typescript || manifest.devDependencies?.typescript)) {
+        throw new Error('TypeScript 工程缺少编译器依赖，不能跳过类型检查发布。');
+      }
+
+      await bounded(container.fs.mkdir(`${directory}/.jingyue-runtime`, { recursive: true }));
+      await bounded(
+        container.fs.writeFile(`${directory}/.jingyue-runtime/tsconfig.json`, JSON.stringify(managedTypecheckConfig())),
+      );
+      await run(['exec', '--no', '--', 'tsc', '--project', '.jingyue-runtime/tsconfig.json'], '检查类型');
     }
 
     await run(

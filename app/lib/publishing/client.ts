@@ -45,6 +45,34 @@ export function netlifyAuthorizationURL(value: unknown): string | null {
   }
 }
 
+function validResponse(data: Record<string, unknown>, action: unknown): boolean {
+  switch (action) {
+    case undefined:
+    case 'status':
+      return typeof data.enabled === 'boolean' && typeof data.connected === 'boolean';
+    case 'connect':
+      return typeof data.attemptId === 'string' && !!data.attemptId && !!netlifyAuthorizationURL(data.authorizeUrl);
+    case 'authorize':
+      return data.pending === true || (data.pending === false && data.connected === true);
+    case 'disconnect':
+      return data.connected === false && typeof data.message === 'string';
+    case 'teams':
+      return (
+        Array.isArray(data.teams) &&
+        data.teams.every(
+          (team) =>
+            team && typeof team.id === 'string' && typeof team.slug === 'string' && typeof team.name === 'string',
+        )
+      );
+    case 'job':
+    case 'prepare':
+    case 'advance':
+      return typeof data.phase === 'string' && Object.hasOwn(PUBLISH_PHASES, data.phase);
+    default:
+      return false;
+  }
+}
+
 export async function publishRequest<T>(
   body?: Record<string, unknown>,
   options: { signal?: AbortSignal } = {},
@@ -60,6 +88,7 @@ export async function publishRequest<T>(
     response = await fetch('/api/publishing', {
       method: body ? 'POST' : 'GET',
       credentials: 'same-origin',
+      redirect: 'error',
       headers: { 'X-Jingyue-User': currentAccount.id, ...(body ? { 'Content-Type': 'application/json' } : {}) },
       ...(body ? { body: JSON.stringify(body) } : {}),
       signal: options.signal
@@ -71,15 +100,36 @@ export async function publishRequest<T>(
     throw new Error('连接中断，请查询已有发布状态；不要重复创建网站。');
   }
 
-  const data = (await response.json().catch(() => ({}))) as { error?: { message?: string }; enabled?: boolean };
+  if (response.status === 401) {
+    throw new Error('登录已过期，请重新登录后查询已有发布状态。');
+  }
+
+  let data: Record<string, unknown>;
+
+  try {
+    data = await response.json();
+  } catch {
+    options.signal?.throwIfAborted();
+    throw new Error('发布响应不完整或连接中断，请查询已有发布状态；不要重复创建网站。');
+  }
+
   options.signal?.throwIfAborted();
 
+  if (!data || typeof data !== 'object' || Array.isArray(data)) {
+    throw new Error('发布响应格式无效，请重新查询状态。');
+  }
+
   if (!response.ok) {
-    throw new Error(data.error?.message || '发布请求失败，请重新查询状态。');
+    const error = data.error as { message?: unknown } | undefined;
+    throw new Error(typeof error?.message === 'string' ? error.message : '发布请求失败，请重新查询状态。');
   }
 
   if (body && data.enabled === false) {
     throw new Error('管理员尚未启用 Netlify 发布。');
+  }
+
+  if (!validResponse(data, body?.action)) {
+    throw new Error('发布响应格式无效，未确认操作成功；请重新查询已有状态。');
   }
 
   return data as T;

@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { WebContainer } from '@webcontainer/api';
 import type { Snapshot } from '~/lib/persistence/types';
 import { binaryBase64, buildPublishArtifacts, publishingSources } from './build';
+import { STYLED_REACT_VITE_TEMPLATE } from '~/lib/runtime/managed/template';
 
 const snapshot = (): Snapshot => ({
   chatIndex: 'test',
@@ -48,6 +49,25 @@ const fakeContainer = (exit = 0) => {
 afterEach(() => vi.useRealTimers());
 
 describe('static publishing build boundary', () => {
+  it('does not publish a utility-styled page without its style toolchain', () => {
+    const source = snapshot();
+    source.files['src/index.css'] = { type: 'file', isBinary: false, content: '@tailwind utilities;' };
+    expect(() => publishingSources(source)).toThrow(/样式/);
+  });
+  it('runs the same non-disableable typecheck as preview even without a generated tsconfig', async () => {
+    const source: Snapshot = {
+      chatIndex: 'test',
+      files: Object.fromEntries(
+        Object.entries(STYLED_REACT_VITE_TEMPLATE)
+          .filter(([name]) => name !== 'tsconfig.json')
+          .map(([name, content]) => [name, { type: 'file', isBinary: false, content }]),
+      ),
+    };
+    const f = fakeContainer();
+    await buildPublishArtifacts(f.container, source, new AbortController().signal, vi.fn());
+    expect(f.spawn.mock.calls.some(([, args]) => args.includes('.jingyue-runtime/tsconfig.json'))).toBe(true);
+    expect(f.writes.some((name) => name.endsWith('/.jingyue-runtime/tsconfig.json'))).toBe(true);
+  });
   it('uses process exit even when the SDK never closes stdout', async () => {
     vi.useFakeTimers();
 

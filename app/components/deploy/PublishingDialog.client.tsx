@@ -6,7 +6,7 @@ import { workbenchStore } from '~/lib/stores/workbench';
 import { streamingState } from '~/lib/stores/streaming';
 import { webcontainer } from '~/lib/webcontainer';
 import { buildPublishArtifacts } from '~/lib/publishing/build';
-import { publishingDelay } from '~/lib/publishing/polling';
+import { publishingDelay, publishingReady } from '~/lib/publishing/polling';
 import { NetlifyAuthorization } from './NetlifyAuthorization';
 import {
   publishRequest,
@@ -202,14 +202,13 @@ export function PublishingDialog() {
     const abort = new AbortController();
     controller.current = abort;
 
-    let bootTimer: ReturnType<typeof setTimeout> | undefined;
-    const container = await Promise.race([
-      webcontainer,
-      new Promise<never>((_r, reject) => {
-        bootTimer = setTimeout(() => reject(new Error('浏览器沙箱未就绪，请先恢复预览。')), 30000);
-      }),
-    ]).finally(() => clearTimeout(bootTimer));
-    const files = await buildPublishArtifacts(container, frozen.document.snapshot!, abort.signal, setMessage);
+    const epoch = dialogEpoch.current;
+    const container = await publishingReady(webcontainer, abort.signal);
+    const files = await buildPublishArtifacts(container, frozen.document.snapshot!, abort.signal, (text) => {
+      if (!abort.signal.aborted && epoch === dialogEpoch.current && selectedProject.current === frozen.projectId) {
+        setMessage(text);
+      }
+    });
     abort.signal.throwIfAborted();
 
     const current = activeProjectState.get();

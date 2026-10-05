@@ -223,6 +223,25 @@ try {
     await rejected.arrayBuffer();
     checks++;
   }
+  const failedCallsBefore = modelEvents.filter((event) => event.event === 'mock_model_call').length;
+  const managedFailure = await fetch(origin + '/api/chat', {
+    method: 'POST',
+    headers: { authorization: auth, origin, 'content-type': 'application/json' },
+    body: JSON.stringify({
+      managedPhase: 'intent',
+      contextOptimization: false,
+      messages: [
+        { role: 'user', content: '[Model: qwen3-coder-next]\n\n[Provider: Bailian]\n\nfixture-provider-unavailable' },
+      ],
+    }),
+  });
+  const failedBody = await managedFailure.text();
+  assert.ok(failedBody.includes('JINGYUE_MODEL_UNAVAILABLE'));
+  assert.ok(!failedBody.includes('private-provider-canary'));
+  assert.equal(modelEvents.filter((event) => event.event === 'mock_model_call').length - failedCallsBefore, 1);
+  assert.ok(logs.includes('managed_model_intent_JINGYUE_MODEL_UNAVAILABLE'));
+  assert.ok(!logs.includes('private-provider-canary'));
+  checks += 5;
   const stop = new AbortController();
   const response = await fetch(origin + '/api/chat', {
     method: 'POST',
@@ -264,8 +283,12 @@ try {
     const release = JSON.parse(await readFile(resolve(directory, 'release.json'), 'utf8'));
     assert.match(release.releaseId, /^[a-f0-9]{64}$/);
     assert.equal(health.headers.get('x-jingyue-release'), release.releaseId);
+    const head = await fetch(origin + '/healthz', { method: 'HEAD', redirect: 'manual' });
+    assert.equal(head.status, 200);
+    assert.equal(head.headers.get('x-jingyue-release'), release.releaseId);
+    assert.equal(await head.text(), '');
     assert.equal((await fetch(origin + '/api/models/Bailian', { headers: { authorization: auth } })).status, 200);
-    checks += 7;
+    checks += 10;
   } finally {
     clearTimeout(timeout);
     stop.abort();
@@ -282,9 +305,10 @@ try {
     throw new Error('Packaged server exited after cancellation: ' + diagnostic);
   }
   // Minimal Node Linux images need not ship procps; /proc is authoritative there.
-  const rssKiB = process.platform === 'linux'
-    ? Number((await readFile(`/proc/${child.pid}/status`, 'utf8')).match(/^VmRSS:\s+(\d+)\s+kB$/m)?.[1])
-    : Number(execFileSync('/bin/ps', ['-o', 'rss=', '-p', String(child.pid)], { encoding: 'utf8' }).trim());
+  const rssKiB =
+    process.platform === 'linux'
+      ? Number((await readFile(`/proc/${child.pid}/status`, 'utf8')).match(/^VmRSS:\s+(\d+)\s+kB$/m)?.[1])
+      : Number(execFileSync('/bin/ps', ['-o', 'rss=', '-p', String(child.pid)], { encoding: 'utf8' }).trim());
   assert.ok(Number.isFinite(rssKiB) && rssKiB > 0, 'Packaged process RSS must be observable');
   const rssMiB = rssKiB / 1024;
   process.stdout.write(

@@ -462,6 +462,50 @@ Rollback uses the retained previous `jingyue-private-rJyrBw.zip`, with the same
 environment and database; do not reverse additive auth/publishing migrations or
 delete projects to roll back code.
 
+### Five-round follow-up audit (2026-10-05; candidate, not a cloud release)
+
+Target: online generation → modification → compilation/preview → saved recovery →
+publication to the user's Netlify account. Each round below includes a reproduced
+gap, a scoped correction and regression. Mocked provider tests do not count as a
+new production deployment, and previous production acceptance does not validate
+this candidate.
+
+| Round | Gap and evidence before the correction | Correction and verification |
+| --- | --- | --- |
+| 1 — Response integrity | Seven failing assertions: empty/HTML/malformed authorization responses were swallowed as `{}`, `pending: false` without a connection could be accepted, unknown job phases passed through, and expiry had no useful message | Validate action-specific response discriminants, reject redirects/invalid bodies and preserve aborts. Never implicitly retry a remote mutation. 37 client/connection/dialog checks passed. |
+| 2 — Stop and isolation | UI regression reproduced a stop button that remained pending while sandbox boot hung, waiting up to 30 seconds | Make sandbox wait abortable without cancelling the shared sandbox. Discard late progress from a closed dialog or another project. 44 publishing tests passed, including cancellation, timeout and no late build. |
+| 3 — Same acceptance gate before publication | Two failing regressions: publishing accepted unconfigured Tailwind, and a TypeScript project without generated `tsconfig.json` skipped typecheck | Check style dependencies before building. Preview/candidate/publication share a host-owned strict TypeScript configuration; model source cannot remove the check by omitting its config. 72 runtime/build tests passed; TypeScript passed after a test-only unknown-value assertion was corrected. |
+| 4 — Public entry verification | Two failing backend regressions: a public marker with a 404 homepage counted as published, and a ready deployment with an invalid URL became stuck with no actionable failure | Require anonymous nonempty HTML homepage plus matching release marker; allowlisted HTTPS host, no redirects or credentials. Keep uncertain jobs and recheck the same deployment. Invalid provider URL keeps upload state/artifacts and explains the error. Four targeted PostgreSQL-backed tests passed. |
+| 5 — Integrated release checks | Live GET `/healthz` returned 200 while HEAD redirected to login; local regression reproduced a 401 for HEAD. This makes some deployment probes report a false outage | Support minimal GET/HEAD health equally, preserving authentication on every other surface; verify digest headers and empty HEAD body in the packaged check. Full application suite: 698 tests. Full deployment suite: 130 tests. Production build passed. Final package/CI receipt is recorded separately after verification. |
+| 6 — Real-model follow-up | The existing supply-chain test project's small “clear search” modification failed before coding and showed only `An error occurred`. Retest with safe diagnostics identified a model transport/network failure, not a compiler or file-protocol failure | Map structured transport/status codes to actionable UI failures; log only an allowlisted reason, phase and sanitized trace metadata. No source, key or provider error body is logged. Disable hidden SDK retries so one quota-counted request is one upstream call. Keep the last working source and preview. The connection interruption itself remains an external stability gap, not a claimed successful modification. |
+
+The sixth-round browser retest was made on the same local database/project after
+restarting the candidate: saved conversations/source and the existing supply-chain
+preview recovered, while the new model request failed in the intent stage with
+`JINGYUE_MODEL_NETWORK`. It did not stop the existing preview or overwrite source.
+Final application suite: **709 / 709** across 63 files; deployment suite:
+**130 / 130**; typecheck and production build passed. Local Node 25 again needed
+the documented `NODE_OPTIONS=--no-experimental-webstorage` to avoid shadowing
+JSDOM storage (without it, 16 tests in two files fail before exercising the
+feature). No assertions were removed. Packaged Linux/Node 22 evidence is recorded
+in the release receipt after verification; it does not turn that real-model
+failure into a passing end-to-end run.
+
+Production baseline at 06:33 UTC: GET health returned `{"status":"ok"}` but no
+`X-Jingyue-Release`, so it is not the traceable candidate. Existing published test
+site `https://jy-a6e266ef751893b769efcc46.netlify.app/` still rendered its second
+version after a fresh reload; +2 twice gave 4 and reset gave 0. These are checks
+of the **previous** deployment. Screenshot: workspace-root
+`jingyue-public-five-round-baseline-20261005.jpg` (not committed).
+
+Remaining release gate: cloud-console tool access is still blocked. Do not try
+another credential/API route around that restriction. The code-only archive must
+be uploaded to the existing function via an authorized path, without changing
+environment variables, DB grants, pricing or site exposure. Then match the live
+release digest and repeat authenticated generation, modification, persistence and
+same-site publication against that version. Independent published auth/storage
+and a cloud OpenCode sandbox remain outside this static-publication scope.
+
 ### Setup and release gate
 
 1. Register a **Jingyue-owned** OAuth application in Netlify. Configure its client

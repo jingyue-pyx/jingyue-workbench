@@ -252,7 +252,9 @@ export class PublishingService {
           job.error = 'Netlify 构建产物处理失败，请在平台查看详情。';
           delete job.files;
         } else if (deploy.state === 'ready') {
-          job.url = publicSiteURL(deploy.ssl_url);
+          const url = publicSiteURL(deploy.ssl_url);
+          if (!url) fail('PROVIDER_RESPONSE', 'Netlify 返回的网站地址无效，保留发布记录，请稍后查询。', 502);
+          job.url = url;
           job.phase = 'access_unverified';
           delete job.files;
         } else {
@@ -288,20 +290,35 @@ export class PublishingService {
         // A ready deployment may still be private. Probe only the allowlisted
         // default host, without cookies/token; never follow redirects.
         try {
+          job.error = '平台已部署，公网版本标记尚未核验；请稍后查询或检查 Netlify 访问保护。';
           const response = await this.fetchImpl(`${job.url}/_jingyue_release.txt`, {
             redirect: 'error',
             credentials: 'omit',
             signal: AbortSignal.timeout(8000),
           });
           if (response.ok && (await readLimited(response, 128)) === job.id) {
-            job.phase = 'published';
-            state.lastPublished = { url: job.url, revision: job.revision, at: Date.now() };
+            // A reachable marker does not prove the actual entry page works.
+            // No credentials, redirects, or arbitrary browser-supplied hosts.
+            job.error = '公网版本标记已匹配，但网站首页尚不能正常匿名访问；请检查 Netlify 后继续查询。';
+            const home = await this.fetchImpl(`${job.url}/`, {
+              redirect: 'error',
+              credentials: 'omit',
+              signal: AbortSignal.timeout(8000),
+            });
+            if (
+              home.ok &&
+              /^text\/html(?:\s*;|$)/i.test(home.headers.get('content-type') || '') &&
+              (await readLimited(home, 8 * 1024 * 1024)).trim()
+            ) {
+              job.phase = 'published';
+              state.lastPublished = { url: job.url, revision: job.revision, at: Date.now() };
+            } else await home.body?.cancel();
           } else await response.body?.cancel();
         } catch {
           /* Platform ready, but public access is not yet verified. */
         }
       }
-      job.error = job.phase === 'failed' ? job.error : null;
+      job.error = ['failed', 'access_unverified'].includes(job.phase) ? job.error : null;
       await save(state);
       return jobView(state);
     } catch (error) {

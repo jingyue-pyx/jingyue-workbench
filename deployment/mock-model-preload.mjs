@@ -43,6 +43,9 @@ globalThis.fetch = async (input, options = {}) => {
   const authenticated = new Headers(options.headers).get('authorization') === `Bearer ${expectedKey}`;
   process.send?.({ event: 'mock_model_call', allowed, authenticated, cancellable: !!options.signal });
   if (!allowed || !authenticated) throw new Error('Mock transport rejected request');
+  if (typeof options.body === 'string' && options.body.includes('fixture-provider-unavailable')) {
+    return Response.json({ error: { message: 'private-provider-canary' } }, { status: 503 });
+  }
   return new Response(
     new ReadableStream({
       start(controller) {

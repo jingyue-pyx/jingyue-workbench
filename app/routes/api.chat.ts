@@ -14,6 +14,7 @@ import { extractPropertiesFromMessage } from '~/lib/.server/llm/utils';
 import { managedSystemPrompt, type ManagedPhase } from '~/lib/runtime/managed/protocol';
 import { conversationPrompt, type ConversationPhase } from '~/lib/runtime/managed/conversation';
 import { managedOutputTokens, managedTrace as sanitizeManagedTrace } from '~/lib/runtime/managed/request-policy';
+import { modelFailureCode, modelFailureEvent } from '~/lib/runtime/managed/model-errors';
 
 export async function action(args: ActionFunctionArgs) {
   return chatAction(args);
@@ -110,6 +111,7 @@ async function chatAction({ context, request }: ActionFunctionArgs) {
         abortSignal: request.signal,
         maxTokens: managedOutputTokens(managedPhase, managedBatchMode),
         toolChoice: 'none',
+        maxRetries: 0, // The task scheduler, not hidden SDK retries, owns the counted budget.
 
         /*
          * Metadata only: diagnose truncation without logging project sources,
@@ -129,7 +131,15 @@ async function chatAction({ context, request }: ActionFunctionArgs) {
       },
     });
 
-    return result.toDataStreamResponse({ headers: { 'Cache-Control': 'no-store' } });
+    return result.toDataStreamResponse({
+      headers: { 'Cache-Control': 'no-store' },
+      getErrorMessage: (error) => {
+        const code = modelFailureCode(error);
+        context.managedModelReport?.(modelFailureEvent(managedPhase, code, managedTrace, error));
+
+        return code;
+      },
+    });
   }
 
   let continuationCount = 0;

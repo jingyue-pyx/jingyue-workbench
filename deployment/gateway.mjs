@@ -117,7 +117,7 @@ export async function createGateway({
       const url = new URL(req.url, config.origin);
       const pathname = safePath(url.pathname);
       if (!pathname) return send(400, { error: 'Invalid path' });
-      if (pathname === '/healthz' && req.method === 'GET') return send(200, { status: 'ok' });
+      if (pathname === '/healthz' && ['GET', 'HEAD'].includes(req.method)) return send(200, { status: 'ok' });
       let accountUser = null;
       if (config.authMode === 'accounts') {
         const result = await accountRequest({ req, res, pathname, config, store: accountStore, headers, send });
@@ -359,7 +359,11 @@ export async function createGateway({
       });
       timer = setTimeout(() => controller.abort(), timeoutMs);
       const response = await requestScope(controller.signal, () =>
-        handler(request, { cloudflare: { env: config.modelEnv }, accountUser }),
+        handler(request, {
+          cloudflare: { env: config.modelEnv },
+          accountUser,
+          managedModelReport: (event) => report(event),
+        }),
       );
       const responseHeaders = Object.fromEntries(response.headers);
       // Node treats names case-insensitively but object spread does not. Remove

@@ -4,6 +4,7 @@ import { visualPreviewScript } from '~/lib/visual/preview-script';
 import { inspectProject, RunError, safeDiagnostic, type RunPhase, type SourceFiles } from './protocol';
 import { validateStyles } from './styles';
 import { installIntegrityScript } from './install-integrity';
+import { managedTypecheckConfig } from './typecheck';
 
 export function previewProbeScript(runId: string, parentOrigin: string) {
   return `(() => {
@@ -426,36 +427,7 @@ export class WebContainerRuntime {
 
     if (profile.typed) {
       stage('typechecking', '执行独立 TypeScript 类型检查（不能由模型关闭）');
-      await this.writeSource(
-        '.jingyue-runtime/tsconfig.json',
-        JSON.stringify({
-          compilerOptions: {
-            target: 'ES2020',
-            lib: ['ES2020', 'DOM', 'DOM.Iterable'],
-            module: 'ESNext',
-            moduleResolution: 'Bundler',
-            jsx: 'react-jsx',
-            noEmit: true,
-            strict: true,
-            skipLibCheck: true,
-            esModuleInterop: true,
-            allowSyntheticDefaultImports: true,
-            resolveJsonModule: true,
-            baseUrl: '..',
-            paths: { '@/*': ['src/*'], '~/*': ['src/*'] },
-          },
-          include: ['../**/*.ts', '../**/*.tsx'],
-          exclude: [
-            '../node_modules',
-            '../dist',
-            '../build',
-            '../.jingyue-build',
-            '../.jingyue-runtime',
-            '../.jingyue-candidates',
-          ],
-        }),
-        signal,
-      );
+      await this.writeSource('.jingyue-runtime/tsconfig.json', JSON.stringify(managedTypecheckConfig()), signal);
       await this.command(
         'node',
         ['node_modules/typescript/bin/tsc', '--project', '.jingyue-runtime/tsconfig.json'],

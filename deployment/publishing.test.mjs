@@ -122,7 +122,10 @@ function fixture() {
     projects,
     provider,
     clientId: 'our-app',
-    fetchImpl: async () => new Response((await store.get(owner, `project:${projectId}`)).job.id),
+    fetchImpl: async (url) =>
+      url.endsWith('/_jingyue_release.txt')
+        ? new Response((await store.get(owner, `project:${projectId}`)).job.id)
+        : new Response('<h1>Demo</h1>', { headers: { 'Content-Type': 'text/html' } }),
   });
   const connect = async () => {
     const attempt = await service.connect(owner, 'session1');
@@ -351,6 +354,46 @@ test('ready is not public; a private/redirected response stays unverified', asyn
   assert.equal(status.phase, 'access_unverified');
   assert.equal(status.lastPublished, null);
   assert.equal(status.manageUrl, 'https://app.netlify.com/projects/site1/overview');
+});
+test('a public release marker alone cannot mark an unavailable homepage as published; recovery keeps the same deploy', async () => {
+  const f = fixture();
+  await f.connect();
+  await f.prepare();
+  const healthy = f.service.fetchImpl;
+  f.service.fetchImpl = async (url, options) => {
+    assert.equal(options.credentials, 'omit');
+    assert.equal(options.redirect, 'error');
+    assert.equal(options.headers, undefined);
+    return url.endsWith('/_jingyue_release.txt') ? healthy(url) : new Response('not found', { status: 404 });
+  };
+  let result;
+  for (let i = 0; i < 9; i++) result = await f.service.advance(f.owner, f.projectId);
+  assert.equal(result.phase, 'access_unverified');
+  assert.equal(result.lastPublished, null);
+  assert.match(result.error, /首页/);
+  f.service.fetchImpl = healthy;
+  result = await f.service.advance(f.owner, f.projectId);
+  assert.equal(result.phase, 'published');
+  assert.equal(result.error, null);
+  assert.equal(f.calls.filter((c) => c === 'site').length, 1);
+  assert.equal(f.calls.filter((c) => c === 'deploy').length, 1);
+});
+test('an invalid ready URL is a provider error, not a permanently stuck access check', async () => {
+  const f = fixture();
+  await f.connect();
+  await f.prepare();
+  await f.service.advance(f.owner, f.projectId);
+  await f.service.advance(f.owner, f.projectId);
+  f.provider.deployment = async () => ({
+    id: 'deploy1',
+    site_id: 'site1',
+    state: 'ready',
+    ssl_url: 'http://127.0.0.1',
+  });
+  await assert.rejects(f.service.advance(f.owner, f.projectId), (e) => e.code === 'PROVIDER_RESPONSE');
+  const saved = await f.store.get(f.owner, `project:${f.projectId}`);
+  assert.equal(saved.job.phase, 'uploading');
+  assert.ok(saved.job.files.length);
 });
 test('disconnect removes credential and prevents further upload, preserving site record', async () => {
   const f = fixture();

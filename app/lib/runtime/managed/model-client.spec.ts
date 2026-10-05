@@ -5,6 +5,26 @@ import { parsePlan } from './protocol';
 afterEach(() => vi.unstubAllGlobals());
 
 describe('managed model request', () => {
+  it.each([
+    ['JINGYUE_MODEL_NETWORK', 'network', '连接中断'],
+    ['JINGYUE_MODEL_LIMIT', 'quota', '额度'],
+    ['An error occurred. private-canary', 'model-service', '暂不可用'],
+  ])('preserves safe provider stream failure %s without requesting code repair', async (code, category, message) => {
+    const fetch = vi.fn(async () => new Response(`3:${JSON.stringify(code)}\n`));
+    vi.stubGlobal('fetch', fetch);
+    await expect(
+      managedModelRequest(
+        'intent',
+        { task: '修改', files: {}, errors: [] },
+        {
+          provider: 'Bailian',
+          model: 'fixture',
+          signal: new AbortController().signal,
+        },
+      ),
+    ).rejects.toMatchObject({ category, repairable: false, message: expect.stringContaining(message) });
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
   it('classifies a connection failure before response headers without leaking transport details', async () => {
     const fetch = vi.fn().mockRejectedValue(new TypeError('private upstream address'));
     vi.stubGlobal('fetch', fetch);

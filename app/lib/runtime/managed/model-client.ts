@@ -1,13 +1,7 @@
 import { processDataStream, type Message } from 'ai';
-import {
-  PlanValidationError,
-  OutputLimitError,
-  RunError,
-  safeDiagnostic,
-  type ManagedPhase,
-  type ManagedModelInput,
-} from './protocol';
+import { PlanValidationError, OutputLimitError, RunError, type ManagedPhase, type ManagedModelInput } from './protocol';
 import type { ConversationPhase } from './conversation';
+import { MODEL_FAILURES } from './model-errors';
 
 export async function managedModelRequest(
   phase: ManagedPhase | ConversationPhase,
@@ -110,7 +104,11 @@ export async function managedModelRequest(
         }
       },
       onErrorPart: (error) => {
-        throw new RunError('模型生成失败：' + safeDiagnostic(error));
+        const failure =
+          MODEL_FAILURES[
+            Object.hasOwn(MODEL_FAILURES, error) ? (error as keyof typeof MODEL_FAILURES) : 'JINGYUE_MODEL_UNAVAILABLE'
+          ];
+        throw new RunError(failure.message, false, failure.category);
       },
       onFinishMessagePart: (part) => {
         finish = part.finishReason;
