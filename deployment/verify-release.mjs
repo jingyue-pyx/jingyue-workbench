@@ -281,8 +281,12 @@ try {
       .join('\n');
     throw new Error('Packaged server exited after cancellation: ' + diagnostic);
   }
-  const rssMiB =
-    Number(execFileSync('/bin/ps', ['-o', 'rss=', '-p', String(child.pid)], { encoding: 'utf8' }).trim()) / 1024;
+  // Minimal Node Linux images need not ship procps; /proc is authoritative there.
+  const rssKiB = process.platform === 'linux'
+    ? Number((await readFile(`/proc/${child.pid}/status`, 'utf8')).match(/^VmRSS:\s+(\d+)\s+kB$/m)?.[1])
+    : Number(execFileSync('/bin/ps', ['-o', 'rss=', '-p', String(child.pid)], { encoding: 'utf8' }).trim());
+  assert.ok(Number.isFinite(rssKiB) && rssKiB > 0, 'Packaged process RSS must be observable');
+  const rssMiB = rssKiB / 1024;
   process.stdout.write(
     JSON.stringify({
       ok: true,

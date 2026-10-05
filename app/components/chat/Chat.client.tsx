@@ -35,7 +35,7 @@ import {
   verifyRestoredProject,
 } from '~/lib/runtime/managed/session';
 import { terminalPhase } from '~/lib/runtime/managed/protocol';
-import { routeConversation, latestOutcome } from '~/lib/runtime/managed/conversation';
+import { routeConversation, latestOutcome, conversationFailureMessage } from '~/lib/runtime/managed/conversation';
 import { managedModelRequest } from '~/lib/runtime/managed/model-client';
 import { ProjectLoadingView } from './ProjectLoadingView';
 
@@ -511,6 +511,23 @@ export const ChatImpl = memo(
         });
         await taskPromise.current;
       } catch (error) {
+        if (conversationAbort.current === requestAbort) {
+          const content = conversationFailureMessage(error, requestAbort.signal);
+
+          if (content) {
+            /*
+             * record() updates the visible conversation before saving. A failed
+             * history write must not hide the original, actionable explanation.
+             */
+            await record({
+              id: crypto.randomUUID(),
+              role: 'assistant',
+              content,
+              annotations: ['managed-run', 'managed-answer'],
+            }).catch(() => toast.error('本次提示尚未同步，当前页面仍保留；请检查连接。'));
+          }
+        }
+
         if (
           requestAbort.signal.aborted &&
           requestAbort.signal.reason instanceof Error &&

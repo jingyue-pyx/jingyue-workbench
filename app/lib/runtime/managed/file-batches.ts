@@ -222,6 +222,22 @@ export function createBatchedModel(
           );
         }
 
+        /*
+         * A manifest may repeat a type/config that already matches. Its valid
+         * complete response is a no-op, not malformed JSON. Continue to the
+         * later integration batch; never spend recovery retrying identical text.
+         */
+        const effective = patch.files.filter((file) => candidate[file.path] !== file.content);
+
+        if (!effective.length) {
+          guard();
+          unchangedReasons.push('返回文件与当前源码一致，本批次未修改代码，未验证需求已完成。');
+          completed += tasks.length;
+          options.progress?.(completed, manifest!.files.length);
+
+          return;
+        }
+
         // Entire batch is valid before retaining it. Never parse/salvage truncated JSON.
         const next = { ...candidate, ...Object.fromEntries(patch.files.map((file) => [file.path, file.content])) };
 
@@ -238,7 +254,7 @@ export function createBatchedModel(
         guard();
         candidate = sourceSnapshot(next);
 
-        for (const file of patch.files) {
+        for (const file of effective) {
           changes.set(file.path, file.content);
         }
         await options.retain?.(candidate);

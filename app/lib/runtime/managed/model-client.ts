@@ -70,6 +70,9 @@ export async function managedModelRequest(
       contextOptimization: false,
       messages: [{ id: crypto.randomUUID(), role: 'user', content }],
     }),
+  }).catch(() => {
+    options.signal.throwIfAborted();
+    throw new RunError('模型连接中断，尚未收到完整响应；已有源码保留，请重试。', false, 'network');
   });
 
   if (!response.ok) {

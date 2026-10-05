@@ -1,9 +1,25 @@
 import type { Message } from 'ai';
-import { RunError, type RunState } from './protocol';
+import { RunError, safeDiagnostic, type RunState } from './protocol';
 import { runtimeEvent } from './presentation';
 import { parseOutcomeAnnotation } from './outcome';
 
 export type ConversationPhase = 'intent' | 'answer';
+
+/*
+ * Routing happens before a managed run exists. Persist its failure as a normal
+ * conversation reply, not just a disappearing toast or a fabricated run result.
+ */
+export function conversationFailureMessage(error: unknown, signal: AbortSignal) {
+  if (signal.aborted) {
+    return signal.reason instanceof Error && signal.reason.message.includes('对话响应超时')
+      ? '本次请求在识别需求或回答问题时超时，尚未启动新的代码任务，已有源码和预览保留。请重新发送刚才的需求。'
+      : undefined;
+  }
+
+  const reason = error instanceof RunError ? safeDiagnostic(error.message) : '本次对话请求未完成，暂时无法确认具体原因';
+
+  return `${reason}\n\n尚未启动新的代码任务，已有源码和预览保留。你可以继续提问，或重新发送刚才的需求。`;
+}
 
 /*
  * A missing keyword is not permission to generate: unclear input still goes

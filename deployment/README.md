@@ -377,13 +377,15 @@ subscription, database permission or website access protection is increased.
 | Managed generation budget 16 → 32 calls, 80,000 → 160,000 reserved output tokens | Full file manifests and bounded corrections could exhaust the old budget even with short actual responses | Finite per-task ceilings remain; every call still traverses account/global quotas. Per-call token limits and two code-repair rounds are unchanged. Reservations are conservative and are not a billing cap. |
 | Negated real-auth requirements | “不要登录、注册和数据库” was misclassified as requiring authentication | Excluded feature lists are removed before capability classification; positive requirements still enforce real-auth integration. |
 | Atomic modification batches | Real marketing-page modification returned paths outside its assigned batch, then exhausted scoped correction | Existing-file edits now use one file per call. The output contract is repeated after source context and correction names the allowed and returned paths; scope validation remains strict. Only new modules may share a batch. |
+| Identical-file batches | A complete but unchanged existing file was misclassified as an invalid empty aggregate patch, consuming correction calls before later files | Compare validated content with the candidate before aggregation. Skip identical batches and continue to the actual integration changes; an all-identical response is explicitly not verified implementation. |
+| Durable routing failure feedback | A model connection failure before planning produced only a short-lived toast, leaving the latest question apparently unanswered | Preserve a bounded failure reply in conversation history, distinguish timeout from cancellation, and normalize pre-header network errors without exposing raw transport data. No silent model retries or quota bypass. |
 | Return-to-workbench public check | A provider-ready site can still return anonymous 401 | Focus/visible/online events recheck the existing pending job, with single-flight and a cooldown. Never rebuild, create a duplicate site or disable Netlify protection automatically. |
 | Cancellable publishing | Closing the dialog or switching project could leave requests/polling active | Abort signals reach fetch and backoff; late status responses cannot update another project. Already-submitted remote operations are preserved for reconciliation. |
 | Dependency and preview reuse | A snapshot can omit runtime lockfiles; retrying preview transport should not redo compilation | Same-sandbox unchanged dependency inputs reuse a checked install. Unchanged compiled source reuses a live development server and reruns the authenticated frame handshake. Whole-page refresh still creates a new browser sandbox. |
 | Publishing install recovery | SDK stdout can stay open after process exit, and registry failures can be transient | Exit code remains authoritative; output drain is bounded. Retry transient installation once, never retry code errors or blindly repeat provider creation. |
 | Traceable releases | A visible UI alone cannot establish which bundle is online | The archive includes `release.json` with source commit, dirty flag and build time. `X-Jingyue-Release` exposes only a validated server-bundle SHA-256; packaging also reports ZIP SHA-256. CI covers main and codex branches on Node 22. |
 
-Verification so far: 678 application tests and 128 deployment tests passed;
+Verification so far: 684 application tests and 128 deployment tests passed;
 TypeScript and production build passed. On this local Node 25 environment the
 first application run hit native Web Storage / jsdom conflicts; rerunning with
 `NODE_OPTIONS=--no-experimental-webstorage` passed without changing assertions.
@@ -400,10 +402,29 @@ preview recovered without regenerating source. In-memory campaign entries reset
 as requested; that is not a test of remote business-data persistence.
 
 The first follow-up modification failed strict batch-scope validation and did
-not overwrite the prior preview. The atomic-file correction above is covered by
-regression tests; its real-model recheck and the supply-chain scenario remain
-release gates, not claimed successes. One recheck also hit a model stream
-interruption before planning. Keep these results distinct from unit-test passes.
+not overwrite the prior preview. After the atomic-file correction, the real
+marketing modification passed: required campaign owner field, visible in-memory
+demo notice, an 8,800-budget form submission/details and status filtering. A full
+refresh restored source/history, the new fields and the preview. One intervening
+attempt hit a model stream interruption before planning; it is recorded as a
+failure, not hidden by the successful retry.
+
+The supply-chain initial generation passed after bounded automatic repair.
+Adding quantity 3 at unit price 120 produced amount 360, count 6 and total 51,310;
+search and details matched. Its follow-up date/remarks change first hit a model
+stream interruption, then a bounded batch-format failure. The prior source and
+preview remained usable. Regression reproduced a distinct identical-file batch
+bug and its correction; follow-up browser acceptance is recorded below rather
+than inferred from test passes.
+
+Linux / Node 22 GitHub CI passed for source checkpoint `7e713d9`:
+https://github.com/jingyue-pyx/jingyue-workbench/actions/runs/37270220307 .
+Its candidate archive `jingyue-private-o9v2zH.zip` passed the credential scan and
+76 offline packaged checks on macOS and Linux / Node 22, with zero actual model
+or database calls. That archive predates the final identical-file/routing fixes;
+use a final clean-commit archive and its `release.json`, not this superseded
+checkpoint package. Linux smoke verification reads RSS from `/proc` so it also
+works in a minimal Node container without the `ps` utility.
 
 Deployment gate: do not count the existing online small-page acceptance as
 acceptance of this new candidate. The cloud configuration console remains outside

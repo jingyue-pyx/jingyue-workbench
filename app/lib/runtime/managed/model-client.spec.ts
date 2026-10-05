@@ -5,6 +5,44 @@ import { parsePlan } from './protocol';
 afterEach(() => vi.unstubAllGlobals());
 
 describe('managed model request', () => {
+  it('classifies a connection failure before response headers without leaking transport details', async () => {
+    const fetch = vi.fn().mockRejectedValue(new TypeError('private upstream address'));
+    vi.stubGlobal('fetch', fetch);
+    await expect(
+      managedModelRequest(
+        'intent',
+        { task: '修改页面', files: {}, errors: [] },
+        {
+          provider: 'Bailian',
+          model: 'fixture',
+          signal: new AbortController().signal,
+        },
+      ),
+    ).rejects.toMatchObject({ category: 'network', message: expect.stringContaining('模型连接中断') });
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+  it('preserves cancellation before response headers without retrying', async () => {
+    const controller = new AbortController();
+    const reason = new Error('user stopped');
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation(async () => {
+        controller.abort(reason);
+        throw new TypeError('aborted transport');
+      }),
+    );
+    await expect(
+      managedModelRequest(
+        'intent',
+        { task: '修改页面', files: {}, errors: [] },
+        {
+          provider: 'Bailian',
+          model: 'fixture',
+          signal: controller.signal,
+        },
+      ),
+    ).rejects.toBe(reason);
+  });
   it('sends bounded batch mode and correlation separately from project contents', async () => {
     const fetch = vi.fn(async () => new Response('0:"{}"\nd:{"finishReason":"stop"}\n'));
     vi.stubGlobal('fetch', fetch);

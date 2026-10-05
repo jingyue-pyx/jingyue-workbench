@@ -10,8 +10,9 @@ import {
   requestsExplicitRepair,
   conversationPrompt,
   requestsExplicitCreation,
+  conversationFailureMessage,
 } from './conversation';
-import type { RunState } from './protocol';
+import { RunError, type RunState } from './protocol';
 
 const history: Message[] = [
   { id: 'create', role: 'user', content: '帮我生成营销后台', annotations: ['managed-run', 'managed-task'] },
@@ -24,6 +25,23 @@ const history: Message[] = [
 ];
 const options = (request = vi.fn()) => ({ history, signal: new AbortController().signal, request });
 describe('conversation intent boundary', () => {
+  it('keeps a routing failure in the conversation without raw transport details', () => {
+    const signal = new AbortController().signal;
+    expect(conversationFailureMessage(new RunError('模型连接中断', false, 'network'), signal)).toContain(
+      '模型连接中断',
+    );
+    expect(conversationFailureMessage(new Error('private transport diagnostic'), signal)).not.toContain('private');
+    expect(conversationFailureMessage(new Error('transport failed'), signal)).toContain('尚未启动新的代码任务');
+  });
+  it('distinguishes routing timeout from user cancellation', () => {
+    const timeout = new AbortController();
+    timeout.abort(new Error('对话响应超时，尚未开始新的生成任务。'));
+    expect(conversationFailureMessage(timeout.signal.reason, timeout.signal)).toContain('识别需求或回答问题时超时');
+
+    const cancelled = new AbortController();
+    cancelled.abort();
+    expect(conversationFailureMessage(cancelled.signal.reason, cancelled.signal)).toBeUndefined();
+  });
   it.each([
     '帮我创建一个登入合注册的页面要求注册的账号能够实际存储到数据库里面下一次登入不需要再次注册可以直接登入',
     '帮我生成一个营销页面',

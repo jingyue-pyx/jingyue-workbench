@@ -86,6 +86,30 @@ describe('bounded file scheduling', () => {
     expect(result.files.map((file) => file.path)).toEqual(['src/A.tsx']);
     expect(request).toHaveBeenCalledTimes(3);
   });
+  it('skips an identical existing file and continues to later real changes without wasting repair calls', async () => {
+    const before = { 'src/types.ts': 'export type Status = "pending";', 'src/App.tsx': 'old app' };
+    const request = vi
+      .fn()
+      .mockResolvedValueOnce(manifest('src/types.ts', 'src/App.tsx'))
+      .mockResolvedValueOnce(patch({ 'src/types.ts': before['src/types.ts'] }))
+      .mockResolvedValueOnce(patch({ 'src/App.tsx': 'new app' }));
+    const hooks = options();
+    const result = parsePatch(await createBatchedModel(request, hooks)('repair', input(before), signal()), before);
+    expect(result.files).toEqual([{ path: 'src/App.tsx', content: 'new app' }]);
+    expect(request).toHaveBeenCalledTimes(3);
+    expect(hooks.diagnostic).not.toHaveBeenCalled();
+  });
+  it('does not claim implementation when all complete file responses are identical', async () => {
+    const before = { 'src/App.tsx': 'current app' };
+    const request = vi.fn().mockResolvedValueOnce(manifest('src/App.tsx')).mockResolvedValueOnce(patch(before));
+    const result = parsePatch(
+      await createBatchedModel(request, options())('generate', input(before), signal()),
+      before,
+    );
+    expect(result.status).toBe('unchanged');
+    expect(result.files).toEqual([]);
+    expect(result.summary).toContain('未验证需求已完成');
+  });
   it('never treats a skipped new file as a completed manifest task', async () => {
     const request = vi
       .fn()
