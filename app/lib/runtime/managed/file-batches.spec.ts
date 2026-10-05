@@ -3,7 +3,7 @@ import { createBatchedModel, parseFileManifest } from './file-batches';
 import { OutputLimitError, RunError, parsePatch, type ManagedModelInput, type SourceFiles } from './protocol';
 import { ManagedRunController, type RunAdapter } from './controller';
 import { STYLED_REACT_VITE_TEMPLATE } from './template';
-import { managedOutputTokens, managedTrace } from './request-policy';
+import { managedOutputTokens, managedTrace, MANAGED_TASK_BUDGET } from './request-policy';
 
 const manifest = (...paths: string[]) =>
   JSON.stringify({
@@ -28,6 +28,49 @@ const signal = () => new AbortController().signal;
 const options = () => ({ guard: vi.fn(), retain: vi.fn().mockResolvedValue(undefined), diagnostic: vi.fn() });
 
 describe('bounded file scheduling', () => {
+  it('allows a full 16-file manifest within the increased finite task budget', async () => {
+    const paths = Array.from({ length: 16 }, (_, index) => `src/module${index}.ts`);
+
+    /*
+     * Small complete outputs still reserve 8k each. Use large existing files to
+     * exercise sixteen single-file calls without retransmitting entire files.
+     */
+    const before = Object.fromEntries(paths.map((path) => [path, '//'.repeat(3100) + '\nexport const value = 0;']));
+    const request = vi.fn(async (phase, payload) =>
+      phase === 'manifest'
+        ? manifest(...paths)
+        : JSON.stringify({
+            summary: 'update',
+            files: payload.batch.files.map(({ path }: { path: string }) => ({
+              path,
+              edits: [{ search: 'export const value = 0;', replace: 'export const value = 1;' }],
+            })),
+          }),
+    );
+    const result = await createBatchedModel(request, options())('generate', input(before), signal());
+    expect(parsePatch(result, before).files).toHaveLength(16);
+    expect(request).toHaveBeenCalledTimes(17);
+    expect(MANAGED_TASK_BUDGET).toEqual({ maxCalls: 32, maxReservedTokens: 160000 });
+  });
+
+  it('still stops at the new request ceiling rather than allowing unlimited repairs', async () => {
+    const request = vi.fn().mockResolvedValue('test');
+    const model = createBatchedModel(request, options());
+
+    for (let i = 0; i < 32; i++) {
+      await model('plan', input(), signal());
+    }
+    await expect(model('plan', input(), signal())).rejects.toMatchObject({ category: 'batch-budget' });
+  });
+  it('independently enforces the new output reservation ceiling', async () => {
+    const request = vi.fn().mockResolvedValue('test');
+    const model = createBatchedModel(request, { ...options(), maxCalls: 100 });
+
+    for (let i = 0; i < 61; i++) {
+      await model('plan', input(), signal());
+    }
+    await expect(model('plan', input(), signal())).rejects.toMatchObject({ category: 'batch-budget' });
+  });
   it('allows an explicit no-op for over-selected existing files without discarding prior completed batches', async () => {
     const before = { 'src/style.css': 'a'.repeat(7000) };
     const request = vi
@@ -161,6 +204,27 @@ describe('bounded file scheduling', () => {
     await createBatchedModel(request, hooks)('generate', input(), signal());
     expect(hooks.retain).toHaveBeenCalledOnce();
     expect(request).toHaveBeenCalledTimes(3);
+
+    if (kind === 'scope') {
+      expect(request.mock.calls[2][1].errors.join(' ')).toContain('src/unlisted.tsx');
+      expect(request.mock.calls[2][1].errors.join(' ')).toContain('src/A.tsx');
+    }
+  });
+
+  it('isolates existing-file edits even when both files are small', async () => {
+    const request = vi.fn(async (phase, payload) =>
+      phase === 'manifest'
+        ? manifest('src/A.tsx', 'src/B.tsx')
+        : patch({ [payload.batch.files[0].path]: 'export const updated = 1;' }),
+    );
+    await createBatchedModel(request, options())(
+      'generate',
+      input({ 'src/A.tsx': 'old A', 'src/B.tsx': 'old B' }),
+      signal(),
+    );
+    expect(
+      request.mock.calls.slice(1).map(([, payload]) => payload.batch.files.map((file: { path: string }) => file.path)),
+    ).toEqual([['src/A.tsx'], ['src/B.tsx']]);
   });
 
   it.each([new RunError('模型额度限制', false), new RunError('connection lost', false, 'network')])(
@@ -233,8 +297,10 @@ describe('bounded file scheduling', () => {
       .mockResolvedValueOnce(
         patch({
           'src/Panel.tsx': 'export default function Panel(){return <main>投流</main>}',
-          'src/App.tsx': 'import Panel from "./Panel"; import "./theme.css"; export default Panel;',
         }),
+      )
+      .mockResolvedValueOnce(
+        patch({ 'src/App.tsx': 'import Panel from "./Panel"; import "./theme.css"; export default Panel;' }),
       )
       .mockResolvedValueOnce(patch({ 'src/theme.css': 'main{color:red}' }));
     const compile = vi.fn(async (candidate: SourceFiles) => {

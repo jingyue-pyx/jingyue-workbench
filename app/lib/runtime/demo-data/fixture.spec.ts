@@ -11,7 +11,7 @@ describe('Supabase acceptance fixture and capability planning', () => {
     const prompt = managedSystemPrompt('plan', false, true);
     expect(prompt).toContain('EXPLICIT CAPABILITY EXCEPTION');
     expect(prompt).toContain('useDemoData');
-    expect(prompt).toContain('beyond the bounded Supabase document store');
+    expect(prompt).toContain('beyond the explicitly provisioned Supabase storage/auth services');
     expect(prompt).not.toContain('No backend server, database or credentials are provisioned');
   });
   it('has valid template dependencies and TypeScript syntax, with no credentials or mock save acknowledgements', () => {

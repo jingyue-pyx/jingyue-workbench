@@ -49,6 +49,7 @@ async function chatAction({ context, request }: ActionFunctionArgs) {
     managedPhase,
     managedPlanFinalization,
     managedDemoStorage,
+    managedAppAuth,
     managedBatchMode,
     managedTrace,
   } = await request.json<{
@@ -59,6 +60,7 @@ async function chatAction({ context, request }: ActionFunctionArgs) {
     managedPhase?: ManagedPhase | ConversationPhase;
     managedPlanFinalization?: boolean;
     managedDemoStorage?: boolean;
+    managedAppAuth?: boolean;
     managedBatchMode?: unknown;
     managedTrace?: unknown;
     supabase?: {
@@ -99,7 +101,12 @@ async function chatAction({ context, request }: ActionFunctionArgs) {
         system:
           managedPhase === 'intent' || managedPhase === 'answer'
             ? conversationPrompt(managedPhase)
-            : managedSystemPrompt(managedPhase, managedPlanFinalization === true, managedDemoStorage === true),
+            : managedSystemPrompt(
+                managedPhase,
+                managedPlanFinalization === true,
+                managedDemoStorage === true,
+                managedAppAuth === true,
+              ),
         abortSignal: request.signal,
         maxTokens: managedOutputTokens(managedPhase, managedBatchMode),
         toolChoice: 'none',

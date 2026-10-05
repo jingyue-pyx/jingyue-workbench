@@ -27,6 +27,11 @@ describe('managed model request', () => {
     const request = JSON.parse((fetch.mock.calls[0] as unknown as [string, RequestInit])[1].body as string);
     expect(request.managedBatchMode).toBe('recovery');
     expect(request.managedTrace).toEqual({ projectId, runId, attempt: 1, batch: 3 });
+
+    const message = request.messages[0].content;
+    const payload = JSON.parse(message.slice(message.indexOf('{')));
+    expect(payload.outputContract.files).toEqual([{ path: 'src/App.tsx', instruction: '修改入口' }]);
+    expect(message.lastIndexOf('outputContract')).toBeGreaterThan(message.indexOf('"files"'));
   });
   it('distinguishes manifest truncation from an invalid engineering plan', async () => {
     vi.stubGlobal(

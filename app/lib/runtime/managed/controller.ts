@@ -15,14 +15,15 @@ import {
   type TaskPlan,
 } from './protocol';
 import { validatePlanAdjustment, type PlanReviewDecision } from './plan-review';
-import { STYLED_REACT_VITE_TEMPLATE, DEMO_DATA_FILES } from './template';
+import { STYLED_REACT_VITE_TEMPLATE, DEMO_DATA_FILES, APP_AUTH_FILES } from './template';
 import { validateImports } from './dependencies';
 import { validateStyles } from './styles';
 import { assertSameSources, sourceRevision, sourceSnapshot } from './source-revision';
 import { validateCandidate } from './preflight';
-import { enforceTaskCapabilities } from './capabilities';
+import { enforceTaskCapabilities, validateAppAuthIntegration } from './capabilities';
 
 export interface RunAdapter {
+  appAuthEnabled?: boolean;
   capture(): SourceFiles;
   revision(): number;
   prepare?(signal: AbortSignal): Promise<void>;
@@ -151,7 +152,11 @@ export class ManagedRunController {
             guard();
             assertSameSources(before, this._adapter.capture());
 
-            return enforceTaskCapabilities(task, parsePlan(raw, { finalizing: !!prior?.decisions?.length }));
+            return enforceTaskCapabilities(
+              task,
+              parsePlan(raw, { finalizing: !!prior?.decisions?.length }),
+              this._adapter.appAuthEnabled,
+            );
           } catch (error) {
             guard();
             assertSameSources(before, this._adapter.capture());
@@ -350,6 +355,7 @@ export class ManagedRunController {
               inspectProject(files);
               validateImports(files);
               validateStyles(files);
+              validateAppAuthIntegration(task, files, !!this._adapter.appAuthEnabled);
               this._update('unchanged', patch.summary);
 
               return this.state;
@@ -362,6 +368,7 @@ export class ManagedRunController {
             ...files,
             ...(!files['src/lib/jingyue-data.ts'] ? DEMO_DATA_FILES : {}),
             ...Object.fromEntries(changed.map((file) => [file.path, file.content])),
+            ...(this._adapter.appAuthEnabled ? APP_AUTH_FILES : {}),
           };
 
           /*
@@ -375,6 +382,7 @@ export class ManagedRunController {
           guard();
           assertSameSources(live, this._adapter.capture());
           validateCandidate(candidate);
+          validateAppAuthIntegration(task, candidate, !!this._adapter.appAuthEnabled);
           await this._adapter.compileCandidate?.(candidate, signal, (phase, detail) => {
             guard();
             this._update(phase, detail);

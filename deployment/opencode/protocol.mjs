@@ -113,6 +113,7 @@ export function taskPrompt(input) {
 用户需求：${input.task}
 方案与已确认偏好：${JSON.stringify(input.plan || {})}
 待修复问题：${JSON.stringify(input.errors)}
+${input.appAuthEnabled ? '平台已为当前工作台预览提供真实 Supabase 用户名密码认证。必须读取 src/lib/jingyue-auth.ts，从该文件导入 useAppAuth，并且只在顶层组件调用一次，向子组件传递状态。user/loading/error/login/register/logout/refresh 来自该 hook。login(username,password)、register(username,password,displayName?)、logout() 返回 Promise<boolean>，只有 true 才是服务器确认成功。账号以字母开头，3–32 位字母数字下划线；密码最少 10 字符、最多 72 字节。注册自动登录，刷新恢复已有会话，必须提供退出按钮。密码不可存入 localStorage/普通业务表，不可添加模拟认证；禁改认证 helper，不得放入密钥。账号按项目隔离，但演示业务数据不因此变成用户私有；只在鲸月预览内支持，独立发布不支持。' : '当前未提供真实应用认证；不能把模拟登录称为真实账号或数据库。'}
 要求：
 - 只实现 React + TypeScript + Vite 前端，不创建独立后端，不添加凭据、Agent 配置或外部脚本。
 - 保留现有功能、编译配置及固定框架版本；不得删除文件。新增功能拆成小模块，先读文件再局部修改。

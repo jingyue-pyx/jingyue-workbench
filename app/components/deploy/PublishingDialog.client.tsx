@@ -6,6 +6,8 @@ import { workbenchStore } from '~/lib/stores/workbench';
 import { streamingState } from '~/lib/stores/streaming';
 import { webcontainer } from '~/lib/webcontainer';
 import { buildPublishArtifacts } from '~/lib/publishing/build';
+import { publishingDelay } from '~/lib/publishing/polling';
+import { NetlifyAuthorization } from './NetlifyAuthorization';
 import {
   publishRequest,
   PUBLISH_PHASES,
@@ -25,9 +27,11 @@ export function PublishingDialog() {
   const [status, setStatus] = useState<PublishingStatus>();
   const [teams, setTeams] = useState<PublishingTeam[]>([]);
   const [teamId, setTeamId] = useState('');
-  const [attempt, setAttempt] = useState<{ attemptId: string; authorizeUrl: string }>();
   const [job, setJob] = useState<PublishJob>();
   const [busy, setBusy] = useState(false);
+  const busyRef = useRef(false);
+  const dialogEpoch = useRef(0);
+  const publicCheckAt = useRef(0);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
   const [confirmed, setConfirmed] = useState(false);
@@ -36,44 +40,75 @@ export function PublishingDialog() {
   selectedProject.current = project?.projectId;
 
   async function load() {
-    const result = await publishRequest<PublishingStatus>();
+    const abort = new AbortController();
+    controller.current = abort;
+
+    const id = project?.projectId;
+    const result = await publishRequest<PublishingStatus>(undefined, { signal: abort.signal });
+    abort.signal.throwIfAborted();
     setStatus(result);
 
     if (result.connected) {
-      const { teams: available } = await publishRequest<{ teams: PublishingTeam[] }>({ action: 'teams' });
+      const { teams: available } = await publishRequest<{ teams: PublishingTeam[] }>(
+        { action: 'teams' },
+        { signal: abort.signal },
+      );
+      abort.signal.throwIfAborted();
       setTeams(available);
       setTeamId((id) => (available.some((t) => t.id === id) ? id : available[0]?.id || ''));
     }
 
     if (project?.state === 'cloud' && result.enabled) {
-      setJob(await publishRequest<PublishJob>({ action: 'job', projectId: project.projectId }));
+      const current = await publishRequest<PublishJob>({ action: 'job', projectId: id }, { signal: abort.signal });
+      abort.signal.throwIfAborted();
+
+      if (selectedProject.current === id) {
+        setJob(current);
+      }
     }
   }
 
   const action = async (run: () => Promise<void>) => {
-    if (busy) {
+    if (busyRef.current) {
       return;
     }
 
+    busyRef.current = true;
+
+    const epoch = dialogEpoch.current;
     setBusy(true);
     setError('');
 
     try {
       await run();
     } catch (cause) {
+      if (epoch !== dialogEpoch.current) {
+        return;
+      }
+
       if (cause && typeof cause === 'object' && 'name' in cause && cause.name === 'AbortError') {
         setMessage('已停止本机后续操作；已提交的远端发布未删除，可以稍后继续查询。');
       } else {
         setError(cause instanceof Error ? cause.message : '请求失败，请重新查询。');
       }
     } finally {
-      setBusy(false);
+      if (epoch === dialogEpoch.current) {
+        busyRef.current = false;
+        setBusy(false);
+      }
     }
   };
 
   useEffect(() => {
+    dialogEpoch.current++;
+    busyRef.current = false;
+    setBusy(false);
+
     if (open) {
+      setStatus(undefined);
+      setTeams([]);
       setJob(undefined);
+      setMessage('');
       setConfirmed(false);
       void action(load);
     }
@@ -91,7 +126,13 @@ export function PublishingDialog() {
         throw new Error('项目已切换，已停止推进。');
       }
 
-      const next = await publishRequest<PublishJob>({ action: 'advance', projectId: id });
+      const next = await publishRequest<PublishJob>({ action: 'advance', projectId: id }, { signal });
+      signal.throwIfAborted();
+
+      if (selectedProject.current !== id) {
+        throw new Error('项目已切换，已停止推进。');
+      }
+
       setJob(next);
 
       if (['published', 'failed'].includes(next.phase)) {
@@ -106,10 +147,45 @@ export function PublishingDialog() {
         checkedPublicAccess = true;
       }
 
-      await new Promise((resolve) => setTimeout(resolve, 1500));
+      await publishingDelay(1500, signal);
     }
     setMessage('已暂停自动查询，请稍后点击继续查询。');
   };
+
+  /*
+   * Returning from the official settings page only verifies the existing job.
+   * It must never create a site, rebuild, or weaken access protection itself.
+   */
+  useEffect(() => {
+    if (!open || !status?.connected || job?.phase !== 'access_unverified' || !project?.projectId) {
+      return undefined;
+    }
+
+    const id = project.projectId;
+    const recheck = () => {
+      if (document.hidden || busyRef.current || Date.now() - publicCheckAt.current < 5000) {
+        return;
+      }
+
+      publicCheckAt.current = Date.now();
+      void action(async () => {
+        const abort = new AbortController();
+        controller.current = abort;
+        setMessage('正在复查已有站点的公网访问，不重新构建或创建网站。');
+        await advance(id, abort.signal);
+      });
+    };
+    window.addEventListener('focus', recheck);
+    window.addEventListener('online', recheck);
+    document.addEventListener('visibilitychange', recheck);
+
+    return () => {
+      window.removeEventListener('focus', recheck);
+      window.removeEventListener('online', recheck);
+      document.removeEventListener('visibilitychange', recheck);
+    };
+  }, [open, status?.connected, job?.phase, project?.projectId]);
+
   const publish = async () => {
     if (
       !project?.document.snapshot ||
@@ -147,15 +223,18 @@ export function PublishingDialog() {
       throw new Error('构建期间源码发生变化，请重新构建当前已保存版本。');
     }
 
-    const result = await publishRequest<PublishJob>({
-      action: 'prepare',
-      projectId: frozen.projectId,
-      requestId: crypto.randomUUID(),
-      revision: frozen.revision,
-      teamId,
-      files,
-      confirmPublic: true,
-    });
+    const result = await publishRequest<PublishJob>(
+      {
+        action: 'prepare',
+        projectId: frozen.projectId,
+        requestId: crypto.randomUUID(),
+        revision: frozen.revision,
+        teamId,
+        files,
+        confirmPublic: true,
+      },
+      { signal: abort.signal },
+    );
     setJob(result);
     setMessage('构建完成，正在发布；关闭弹窗只停止后续推进，不会删除已提交的网站。');
     await advance(frozen.projectId, abort.signal);
@@ -178,84 +257,9 @@ export function PublishingDialog() {
           <Dialog.Description className="text-sm text-bolt-elements-textSecondary leading-relaxed">
             发布已保存的 React + Vite 静态网页。资源归你选择的 Netlify 团队，鲸月不会获取你的登录密码，不会购买套餐。
           </Dialog.Description>
-          {!status && <p role="status">正在检查发布配置…</p>}
-          {status && !status.enabled && (
-            <p role="status" className="text-sm">
-              {status.message}
-            </p>
-          )}
-          {status?.enabled && !status.connected && (
-            <div className="space-y-3">
-              <p className="text-sm text-bolt-elements-textSecondary leading-relaxed">
-                Netlify 的授权允许鲸月创建和管理你团队中的项目，并非仅限当前站点。
-                鲸月服务端只推进与你的工作台账号、项目和所选团队绑定的发布；你可以随时在 Netlify 撤销授权。
-              </p>
-              <button
-                className={button}
-                disabled={busy}
-                onClick={() =>
-                  void action(async () => {
-                    setAttempt(await publishRequest({ action: 'connect' }));
-                  })
-                }
-              >
-                连接 Netlify 账号
-              </button>
-              {attempt && (
-                <div className="space-y-3 text-sm">
-                  <a
-                    href={attempt.authorizeUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-purple-500 underline"
-                  >
-                    打开 Netlify 官方授权页 ↗
-                  </a>
-                  <p>在官方页面确认授权后，返回这里检查。10 分钟内有效。</p>
-                  <button
-                    className={button}
-                    disabled={busy}
-                    onClick={() =>
-                      void action(async () => {
-                        const result = await publishRequest<{ pending: boolean }>({
-                          action: 'authorize',
-                          attemptId: attempt.attemptId,
-                        });
-
-                        if (result.pending) {
-                          setMessage('尚未收到授权，请先在 Netlify 完成确认。');
-                        } else {
-                          setAttempt(undefined);
-                          await load();
-                          setMessage('账号已连接。');
-                        }
-                      })
-                    }
-                  >
-                    我已授权，检查连接
-                  </button>
-                </div>
-              )}
-            </div>
-          )}
+          <NetlifyAuthorization status={status} busy={busy} run={action} refresh={load} onMessage={setMessage} />
           {status?.enabled && status.connected && (
             <div className="space-y-4">
-              <div className="flex items-center justify-between gap-2 text-sm">
-                <span>已连接 · {status.displayName}</span>
-                <button
-                  className={button}
-                  disabled={busy}
-                  onClick={() =>
-                    void action(async () => {
-                      const result = await publishRequest<{ message: string }>({ action: 'disconnect' });
-                      setMessage(result.message);
-                      await load();
-                    })
-                  }
-                >
-                  断开连接
-                </button>
-              </div>
               <label className="block text-sm space-y-2">
                 <span>网站所属团队</span>
                 <select
@@ -354,7 +358,7 @@ export function PublishingDialog() {
               {job.phase === 'access_unverified' && (
                 <p>
                   Netlify 可能将新站点默认设为私有。请在项目概览核对访问保护；若需要公开，确认内容后再设为公开，
-                  然后返回继续查询。鲸月不会自动关闭访问保护，也不需要重复构建。
+                  返回鲸月后会自动复查；也可点击“继续查询 / 推进发布”。鲸月不会自动关闭访问保护，也不需要重复构建。
                   {job.manageUrl && (
                     <a
                       className="ml-1 text-purple-500 underline"

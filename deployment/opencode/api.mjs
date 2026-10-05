@@ -13,6 +13,7 @@ export async function handleAgentApi({
   headers,
   send,
   report,
+  appAuthEnabled = false,
 }) {
   if (pathname !== '/api/agent-engine' && pathname !== '/api/opencode') return false;
   if (!config.localTest || !runner) {
@@ -48,6 +49,8 @@ export async function handleAgentApi({
       throw new AgentError('AGENT_INPUT', '请求不是有效 JSON。', 400);
     }
     validateInput(input);
+    // Derived only from the server configuration, never from model/browser flags.
+    input.appAuthEnabled = appAuthEnabled;
     // Do not trust owner/session/directory fields supplied by the browser.
     try {
       const project = await projects.forOwner(user.id).get(input.projectId);

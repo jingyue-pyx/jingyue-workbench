@@ -4,7 +4,10 @@ on:
   push:
     branches:
       - master
+      - main
+      - 'codex/**'
   pull_request:
+  workflow_dispatch:
 
 jobs:
   test:
@@ -16,6 +19,8 @@ jobs:
 
       - name: Setup and Build
         uses: ./.github/actions/setup-and-build
+        with:
+          node-version: '22'
 
       - name: Run type check
         run: pnpm run typecheck

@@ -51,6 +51,18 @@ function fixture() {
 afterEach(() => vi.useRealTimers());
 
 describe('managed task lifecycle', () => {
+  it('generates a static site when authentication is provisioned but explicitly excluded from the task', async () => {
+    const { controller, adapter } = fixture();
+    adapter.appAuthEnabled = true;
+
+    const result = await controller.run(
+      '直接生成纯静态 React + Vite 网页，不包含个人数据、登录注册、数据库或后端。只需要计数器。',
+    );
+    expect(result.phase).toBe('succeeded');
+    expect(vi.mocked(adapter.model).mock.calls.map(([phase]) => phase)).toEqual(['plan', 'generate']);
+    expect(adapter.apply).toHaveBeenCalledOnce();
+    expect(adapter.verify).toHaveBeenCalledOnce();
+  });
   it('repairs compiler-rejected candidates before any live write or preview stop', async () => {
     const { controller, adapter, setFiles } = fixture();
     const original = { ...REACT_VITE_TEMPLATE };

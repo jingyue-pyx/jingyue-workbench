@@ -99,6 +99,9 @@ export class WebContainerRuntime {
   #processes = new Set<WebContainerProcess>();
   #dev?: WebContainerProcess;
   #installed = '';
+  #installedInput = '';
+  #compiledSources = '';
+  #preview?: { url: string; runId: string };
   #latestOutput = '';
   #unavailable = '';
   constructor(
@@ -121,6 +124,7 @@ export class WebContainerRuntime {
     }
     this.#processes.clear();
     this.#dev = undefined;
+    this.#preview = undefined;
   }
 
   async ready(signal: AbortSignal): Promise<WebContainer> {
@@ -309,7 +313,13 @@ export class WebContainerRuntime {
     }
   }
 
-  async compile(files: SourceFiles, signal: AbortSignal, stage: (phase: RunPhase, detail: string) => void) {
+  async compile(
+    files: SourceFiles,
+    signal: AbortSignal,
+    stage: (phase: RunPhase, detail: string) => void,
+  ): Promise<void> {
+    this.#compiledSources = '';
+
     const profile = inspectProject(files);
     validateStyles(files);
 
@@ -317,8 +327,9 @@ export class WebContainerRuntime {
     this.stop();
     stage('installing', '检查依赖；仅依赖变化或新沙箱才重新安装');
 
-    if (this.#installed !== profile.dependencyKey) {
+    if (this.#installed !== profile.dependencyKey && this.#installedInput !== profile.dependencyKey) {
       this.#installed = '';
+      this.#installedInput = '';
       await this.writeSource('.jingyue-runtime/check-install.mjs', installIntegrityScript, signal);
 
       for (let retry = 0; ; retry++) {
@@ -384,6 +395,31 @@ export class WebContainerRuntime {
         '读取依赖锁文件',
       );
       this.#installed = inspectProject({ ...files, 'package-lock.json': lockfile }).dependencyKey;
+
+      /*
+       * A restored source snapshot can omit the runtime-generated lockfile.
+       * Rechecking unchanged sources in this sandbox must not reinstall again.
+       */
+      this.#installedInput = profile.dependencyKey;
+    } else {
+      stage('installing', '复用当前沙箱依赖，检查安装完整性；不重新下载');
+
+      try {
+        await this.command('node', ['.jingyue-runtime/check-install.mjs'], signal, 30000);
+      } catch (error) {
+        signal.throwIfAborted();
+
+        if (!(error instanceof RunError) || error.category !== 'dependencies') {
+          throw error;
+        }
+
+        this.#installed = '';
+        this.#installedInput = '';
+
+        await this.compile(files, signal, stage);
+
+        return;
+      }
     }
 
     signal.throwIfAborted();
@@ -432,9 +468,29 @@ export class WebContainerRuntime {
 
     stage('building', '执行 Vite 正式构建，不使用模型提供的 shell 命令');
     await this.command('node', ['node_modules/vite/bin/vite.js', 'build', '--outDir', '.jingyue-build'], signal, 90000);
+    this.#compiledSources = JSON.stringify(Object.entries(files).sort(([a], [b]) => a.localeCompare(b)));
   }
 
   async verify(files: SourceFiles, signal: AbortSignal, stage: (phase: RunPhase, detail: string) => void) {
+    signal.throwIfAborted();
+
+    const sourceKey = JSON.stringify(Object.entries(files).sort(([a], [b]) => a.localeCompare(b)));
+
+    if (this.#dev && this.#preview && this.#compiledSources === sourceKey) {
+      const { url, runId } = this.#preview;
+      const dev = this.#dev;
+      stage('previewing', '源码未变，重新连接已有预览；不重复安装、编译或调用模型');
+      await Promise.race([
+        this._checkPreview(url, runId, signal, stage),
+        dev.exit.then(() => {
+          throw new RunError('预览服务已退出，请重新检查启动。', false, 'sandbox');
+        }),
+      ]);
+      signal.throwIfAborted();
+
+      return url;
+    }
+
     await this.compile(files, signal, stage);
 
     const wc = await this.ready(signal);
@@ -501,11 +557,17 @@ export class WebContainerRuntime {
       }
 
       const exited = dev.exit.then(() => {
+        if (this.#dev === dev) {
+          this.#dev = undefined;
+          this.#preview = undefined;
+        }
+
         throw new RunError('开发服务提前退出。\n' + safeDiagnostic(this.#latestOutput), true);
       });
       exited.catch(() => {});
 
       const url = await Promise.race([ready, exited]);
+      this.#preview = { url, runId };
       stage('previewing', '检查页面初始挂载、运行异常和构建错误');
       await Promise.race([this._checkPreview(url, runId, signal, stage), exited]);
 

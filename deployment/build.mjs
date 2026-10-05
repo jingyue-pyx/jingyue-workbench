@@ -1,7 +1,8 @@
 import { createRequire } from 'node:module';
 import { resolve, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { mkdtemp, cp, mkdir, writeFile } from 'node:fs/promises';
+import { mkdtemp, cp, mkdir, writeFile, readFile } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { inspectRelease } from './scan.mjs';
 
@@ -64,6 +65,12 @@ await cp(join(root, 'deployment/ACCOUNTS.md'), join(output, 'ACCOUNTS.md'));
 await cp(join(root, 'deployment/persistence.env.example'), join(output, 'persistence.env.example'));
 await cp(join(root, 'deployment/publishing.env.example'), join(output, 'publishing.env.example'));
 
+// Public, non-secret provenance. Do not read environment files or git remote URLs.
+const releaseId = createHash('sha256').update(await readFile(join(output, 'server.mjs'))).digest('hex');
+const sourceCommit = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8' }).trim();
+const sourceDirty = !!execFileSync('git', ['status', '--porcelain'], { cwd: root, encoding: 'utf8' }).trim();
+await writeFile(join(output, 'release.json'), JSON.stringify({ releaseId, sourceCommit, sourceDirty, builtAt: new Date().toISOString() }, null, 2) + '\n');
+
 // Allowlist construction never reads local key/configuration files.
 const inspection = await inspectRelease(output);
 execFileSync('/usr/bin/tar', ['-czf', `${output}.tgz`, '-C', output, '.']);
@@ -73,6 +80,10 @@ process.stdout.write(
     directory: output,
     archive: `${output}.tgz`,
     zip: `${output}.zip`,
+    releaseId,
+    sourceCommit,
+    sourceDirty,
+    zipSha256: createHash('sha256').update(await readFile(`${output}.zip`)).digest('hex'),
     ...inspection,
     credentialScanPassed: true,
     nativeDependencies: false,

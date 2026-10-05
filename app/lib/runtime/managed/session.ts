@@ -28,6 +28,7 @@ import { runActivity, recordWrittenFile } from './activity';
 import { compileCandidate } from './candidate-workspace';
 import { createBatchedModel } from './file-batches';
 import { localAgentEngine, openCodeRequest } from './opencode-client';
+import { previewAppAuthEnabled } from '~/lib/runtime/app-auth/bridge';
 
 const planReview = new PlanReviewGate();
 export const planReviewReady = atom(false);
@@ -212,6 +213,7 @@ export async function runManagedTask(
     }
 
     const project = chatId.get() || 'new';
+    const appAuthEnabled = !!currentAccount && (await previewAppAuthEnabled(project, currentAccount.id));
     const revision = workbenchStore.manualEditVersion;
     const engine = await localAgentEngine(options.model);
     const batchedModel = createBatchedModel(
@@ -242,6 +244,7 @@ export async function runManagedTask(
     let planVersion = 0;
     controller = new ManagedRunController(
       {
+        appAuthEnabled,
         capture: captureSources,
         revision: () => workbenchStore.manualEditVersion,
         prepare: async (signal) => {

@@ -12,7 +12,7 @@ import {
   type SourceFiles,
 } from './protocol';
 import { assertSameSources, sourceRevision, sourceSnapshot } from './source-revision';
-import { managedOutputTokens } from './request-policy';
+import { managedOutputTokens, MANAGED_TASK_BUDGET } from './request-policy';
 
 const manifestSchema = z
   .object({
@@ -80,7 +80,10 @@ export function createBatchedModel(
 
     const tokens = managedOutputTokens(phase, input.batch?.recovery ? 'recovery' : 'file');
 
-    if (calls >= (options.maxCalls ?? 16) || reservedTokens + tokens > (options.maxReservedTokens ?? 80000)) {
+    if (
+      calls >= (options.maxCalls ?? MANAGED_TASK_BUDGET.maxCalls) ||
+      reservedTokens + tokens > (options.maxReservedTokens ?? MANAGED_TASK_BUDGET.maxReservedTokens)
+    ) {
       throw new RunError(
         '分批生成达到本次请求或输出预算上限，已完成候选批次保留，当前工程未替换。',
         false,
@@ -204,11 +207,19 @@ export function createBatchedModel(
         }
 
         if (patch.files.some((file) => !allowed.has(file.path))) {
-          throw new RunError('文件批次包含未指定路径；只返回本批次要求的文件。', true, 'batch-scope');
+          throw new RunError(
+            `文件批次包含未指定路径。当前仅允许：${JSON.stringify([...allowed])}；本次返回：${JSON.stringify(patch.files.map((file) => file.path))}。请只修正本批次，其他文件由独立批次处理；不要照抄示例路径。`,
+            true,
+            'batch-scope',
+          );
         }
 
         if (patch.status !== 'changed' || tasks.some((task) => !patch.files.some((file) => file.path === task.path))) {
-          throw new RunError('文件批次缺少清单要求的文件；请完成本批次全部文件改动。', true, 'format');
+          throw new RunError(
+            `文件批次缺少清单要求的文件；请完整返回：${JSON.stringify([...allowed])}。`,
+            true,
+            'format',
+          );
         }
 
         // Entire batch is valid before retaining it. Never parse/salvage truncated JSON.
@@ -287,13 +298,13 @@ export function createBatchedModel(
       }
     };
 
-    // Large existing files get their own request from the outset; small files can share a batch.
+    // Existing-file modifications are atomic single-file calls; only new small modules may share a batch.
     for (let i = 0; i < manifest.files.length; ) {
       const first = manifest.files[i++];
       const tasks = [first];
       const next = manifest.files[i];
 
-      if (next && (candidate[first.path]?.length || 0) < 6000 && (candidate[next.path]?.length || 0) < 6000) {
+      if (next && !Object.hasOwn(candidate, first.path) && !Object.hasOwn(candidate, next.path)) {
         tasks.push(next);
         i++;
       }

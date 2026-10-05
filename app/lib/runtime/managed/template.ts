@@ -1,11 +1,14 @@
 import type { SourceFiles } from './protocol';
 import DEMO_DATA_CLIENT from '~/lib/runtime/demo-data/client.ts?raw';
+import APP_AUTH_CLIENT from '~/lib/runtime/app-auth/client.ts?raw';
 
 export const DEMO_DATA_FILES: SourceFiles = { 'src/lib/jingyue-data.ts': DEMO_DATA_CLIENT };
+export const APP_AUTH_FILES: SourceFiles = { 'src/lib/jingyue-auth.ts': APP_AUTH_CLIENT };
 
 // Pinned baseline, not fetched from an external template repository at runtime.
 export const REACT_VITE_TEMPLATE: SourceFiles = {
   ...DEMO_DATA_FILES,
+  ...APP_AUTH_FILES,
   'package.json': JSON.stringify(
     {
       name: 'jingyue-app',

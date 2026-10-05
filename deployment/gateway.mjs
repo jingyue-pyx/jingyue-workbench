@@ -13,6 +13,7 @@ import { runtimeEventName } from './runtime-events.mjs';
 import { demoDataRoute, handleDemoDataApi } from './demo-data.mjs';
 import { handleAgentApi } from './opencode/api.mjs';
 import { handlePublishingApi } from './publishing/api.mjs';
+import { appAuthRoute, handleAppAuthApi } from './app-auth.mjs';
 
 // Never emit messages, stacks, URLs or arbitrary error properties: upstream
 // failures can contain prompts, credentials and headers. These finite labels
@@ -51,6 +52,8 @@ export async function createGateway({
   demoDataStore = null,
   opencodeRunner = null,
   publishingService = null,
+  appAuthService = null,
+  releaseId = null,
 }) {
   const clientRoot = await realpath(clientDirectory);
   const maxBody = 4 * 1024 * 1024;
@@ -64,8 +67,10 @@ export async function createGateway({
   let activeDemo = 0;
   let publishingWindow = { at: Date.now(), count: 0 };
   let activePublishing = 0;
+  let activeAppAuth = 0;
 
   const headers = {
+    ...(typeof releaseId === 'string' && /^[a-f0-9]{64}$/.test(releaseId) ? { 'X-Jingyue-Release': releaseId } : {}),
     'Cross-Origin-Embedder-Policy': 'require-corp',
     'Cross-Origin-Opener-Policy': 'same-origin',
     'X-Content-Type-Options': 'nosniff',
@@ -142,6 +147,27 @@ export async function createGateway({
           return send(403, { error: 'Same-origin requests required' });
         if (!req.headers['content-type']?.startsWith('application/json')) return send(415, { error: 'JSON required' });
       }
+      const appProject = appAuthRoute(pathname);
+      if (appProject) {
+        if (activeAppAuth >= 2)
+          return send(429, { error: { code: 'APP_AUTH_RATE_LIMIT', message: '认证请求较多，请稍后重试。' } });
+        activeAppAuth++;
+        try {
+          return await handleAppAuthApi({
+            req,
+            project: appProject,
+            service: appAuthService,
+            projects: projectStore,
+            user: accountUser,
+            send,
+            config,
+            signal: controller.signal,
+            report,
+          });
+        } finally {
+          activeAppAuth--;
+        }
+      }
       if (pathname === '/api/publishing') {
         if (Date.now() - publishingWindow.at > 60000) publishingWindow = { at: Date.now(), count: 0 };
         if (activePublishing >= 2 || publishingWindow.count++ >= 120)
@@ -149,7 +175,9 @@ export async function createGateway({
         activePublishing++;
         try {
           await handlePublishingApi({ req, pathname, service: publishingService, user: accountUser, send });
-        } finally { activePublishing--; }
+        } finally {
+          activePublishing--;
+        }
         return;
       }
       if (pathname === '/api/runtime-events') {
@@ -175,27 +203,57 @@ export async function createGateway({
         report(event);
         return send(200, { accepted: true });
       }
-      if (await handleAgentApi({ req, res, pathname, runner: opencodeRunner, config, user: accountUser,
-        projects: projectStore, signal: controller.signal, headers, send, report,
-        charge: async () => {
-          if (Date.now() - modelWindow.at > 60000) modelWindow = { at: Date.now(), count: 0 };
-          if (activeCalls >= 2 || modelWindow.count >= 10) throw new Error('Model rate limit');
-          modelWindow.count++;
-          await accountStore.allowModel(accountUser);
-          activeCalls++;
-          return () => { activeCalls--; };
-        },
-      })) return;
+      if (
+        await handleAgentApi({
+          req,
+          res,
+          pathname,
+          runner: opencodeRunner,
+          appAuthEnabled: !!appAuthService,
+          config,
+          user: accountUser,
+          projects: projectStore,
+          signal: controller.signal,
+          headers,
+          send,
+          report,
+          charge: async () => {
+            if (Date.now() - modelWindow.at > 60000) modelWindow = { at: Date.now(), count: 0 };
+            if (activeCalls >= 2 || modelWindow.count >= 10) throw new Error('Model rate limit');
+            modelWindow.count++;
+            await accountStore.allowModel(accountUser);
+            activeCalls++;
+            return () => {
+              activeCalls--;
+            };
+          },
+        })
+      )
+        return;
       const demo = demoDataRoute(pathname);
       if (demo) {
         if (Date.now() - demoWindow.at > 60000) demoWindow = { at: Date.now(), count: 0 };
         if (activeDemo >= 4 || demoWindow.count++ >= 120)
-          return send(429, { error: { code: 'DATA_RATE_LIMIT', message: '保存请求较多，请稍后重试。' } }, { 'Retry-After': '5' });
+          return send(
+            429,
+            { error: { code: 'DATA_RATE_LIMIT', message: '保存请求较多，请稍后重试。' } },
+            { 'Retry-After': '5' },
+          );
         activeDemo++;
         try {
-          return await handleDemoDataApi({ req, route: demo, store: demoDataStore, projects: projectStore,
-            user: accountUser, send, signal: controller.signal, report });
-        } finally { activeDemo--; }
+          return await handleDemoDataApi({
+            req,
+            route: demo,
+            store: demoDataStore,
+            projects: projectStore,
+            user: accountUser,
+            send,
+            signal: controller.signal,
+            report,
+          });
+        } finally {
+          activeDemo--;
+        }
       }
       const project = projectRoute(pathname);
       if (project) {
@@ -245,7 +303,17 @@ export async function createGateway({
           try {
             const owned = await projectStore.forOwner(accountUser.id).get(demoDataStore.projectId);
             if (!owned.deletedAt) data.managedDemoStorage = true;
-          } catch { /* Missing, foreign or unavailable projects must not claim cloud storage. */ }
+          } catch {
+            /* Missing, foreign or unavailable projects must not claim cloud storage. */
+          }
+        }
+        if (appAuthService && accountUser && data.managedProjectId) {
+          try {
+            const owned = await projectStore.forOwner(accountUser.id).get(data.managedProjectId);
+            if (!owned.deletedAt) data.managedAppAuth = true;
+          } catch {
+            /* Never trust capability flags supplied by the client. */
+          }
         }
         if (Date.now() - modelWindow.at > 60000) modelWindow = { at: Date.now(), count: 0 };
         if (activeCalls >= 2 || modelWindow.count >= 10)

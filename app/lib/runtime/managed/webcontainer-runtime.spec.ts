@@ -123,6 +123,22 @@ describe('independent runtime processes', () => {
     'package.json': JSON.stringify({ dependencies: { react: '18.3.1', 'react-dom': '18.3.1', vite: '5.4.21' } }),
     'index.html': '<div id="root"></div>',
   };
+  it('reuses an install when the saved snapshot omits the runtime-generated lockfile', async () => {
+    const runtime = new WebContainerRuntime(
+      Promise.resolve({ fs: { readFile: vi.fn().mockResolvedValue('{}') } } as unknown as WebContainer),
+    );
+    vi.spyOn(runtime, 'writeSource').mockResolvedValue(undefined);
+
+    const command = vi.spyOn(runtime, 'command').mockResolvedValue(undefined);
+    await runtime.compile(jsFiles, new AbortController().signal, vi.fn());
+    await runtime.compile(jsFiles, new AbortController().signal, vi.fn());
+    expect(command.mock.calls.filter(([cmd]) => cmd === 'npm')).toHaveLength(1);
+    expect(command.mock.calls.filter(([, args]) => args[0] === '.jingyue-runtime/check-install.mjs')).toHaveLength(2);
+
+    const changed = { ...jsFiles, 'package.json': jsFiles['package.json'].replace('18.3.1', '18.2.0') };
+    await runtime.compile(changed, new AbortController().signal, vi.fn());
+    expect(command.mock.calls.filter(([cmd]) => cmd === 'npm')).toHaveLength(2);
+  });
   it('finishes an exited command even when the SDK leaves the output stream open', async () => {
     vi.useFakeTimers();
 

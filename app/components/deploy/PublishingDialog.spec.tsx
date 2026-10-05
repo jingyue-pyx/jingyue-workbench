@@ -20,7 +20,8 @@ vi.mock('~/lib/stores/workbench', () => ({ workbenchStore: { unsavedFiles: { get
 vi.mock('~/lib/stores/streaming', () => ({ streamingState: { get: () => mock.streaming } }));
 vi.mock('~/lib/webcontainer', () => ({ webcontainer: Promise.resolve({}) }));
 vi.mock('~/lib/publishing/build', () => ({ buildPublishArtifacts: mock.build }));
-vi.mock('~/lib/publishing/client', () => ({
+vi.mock('~/lib/publishing/client', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('~/lib/publishing/client')>()),
   publishRequest: mock.request,
   PUBLISH_PHASES: { idle: '尚未发布', published: '已发布，公网访问已验证', uploading: '正在上传' },
 }));
@@ -72,7 +73,7 @@ describe('account-mode publishing interaction', () => {
     mock.request.mockResolvedValue({ enabled: false, connected: false, message: '管理员尚未配置发布。' });
     open();
     expect(await screen.findByText('管理员尚未配置发布。')).toBeTruthy();
-    expect(screen.queryByRole('button', { name: '连接 Netlify 账号' })).toBeNull();
+    expect((screen.getByRole('button', { name: '连接 Netlify 账号' }) as HTMLButtonElement).disabled).toBe(true);
     expect(document.querySelector('input[type=password]')).toBeNull();
   });
   it('requires explicit public confirmation and a saved project before building', async () => {
@@ -89,6 +90,7 @@ describe('account-mode publishing interaction', () => {
     await screen.findByText('已发布，公网访问已验证');
     expect(mock.request).toHaveBeenCalledWith(
       expect.objectContaining({ action: 'prepare', confirmPublic: true, revision: 1, teamId: 'team1' }),
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
     );
     expect(mock.build).toHaveBeenCalledTimes(1);
   });
@@ -149,6 +151,62 @@ describe('account-mode publishing interaction', () => {
     expect(screen.queryByRole('alert')).toBeNull();
     expect(mock.request.mock.calls.some(([body]) => body?.action === 'prepare')).toBe(false);
   });
+  it('rechecks an existing private site on return without creating a site or rebuilding', async () => {
+    connected();
+
+    const request = mock.request.getMockImplementation()!;
+    mock.request.mockImplementation((body) =>
+      body?.action === 'job'
+        ? Promise.resolve({
+            id: 'job1',
+            phase: 'access_unverified',
+            manageUrl: 'https://app.netlify.com/projects/site1/overview',
+          })
+        : request(body),
+    );
+    open();
+    await screen.findByText(/返回鲸月后会自动复查/);
+    await waitFor(() =>
+      expect((screen.getByRole('button', { name: '继续查询 / 推进发布' }) as HTMLButtonElement).disabled).toBe(false),
+    );
+    fireEvent.focus(window);
+    fireEvent.focus(window);
+    await screen.findByText('已发布，公网访问已验证');
+    expect(mock.request.mock.calls.filter(([body]) => body?.action === 'advance')).toHaveLength(1);
+    expect(mock.request.mock.calls.some(([body]) => body?.action === 'prepare')).toBe(false);
+    expect(mock.build).not.toHaveBeenCalled();
+  });
+  it('closing the dialog cancels the active status request and removes return listeners', async () => {
+    connected();
+
+    const request = mock.request.getMockImplementation()!;
+    let pendingSignal: AbortSignal | undefined;
+    mock.request.mockImplementation((body, options) => {
+      if (body?.action === 'job') {
+        return Promise.resolve({ id: 'job1', phase: 'access_unverified' });
+      }
+
+      if (body?.action === 'advance') {
+        pendingSignal = options.signal;
+        return new Promise((_resolve, reject) =>
+          pendingSignal!.addEventListener('abort', () => reject(pendingSignal!.reason), { once: true }),
+        );
+      }
+
+      return request(body);
+    });
+    open();
+    await screen.findByText(/返回鲸月后会自动复查/);
+    await waitFor(() =>
+      expect((screen.getByRole('button', { name: '继续查询 / 推进发布' }) as HTMLButtonElement).disabled).toBe(false),
+    );
+    fireEvent.focus(window);
+    await waitFor(() => expect(pendingSignal).toBeDefined());
+    fireEvent.click(screen.getByRole('button', { name: '关闭发布窗口' }));
+    await waitFor(() => expect(pendingSignal?.aborted).toBe(true));
+    fireEvent.focus(window);
+    expect(mock.request.mock.calls.filter(([body]) => body?.action === 'advance')).toHaveLength(1);
+  });
   it('opens only the official authorization link and explicitly checks consent', async () => {
     mock.request.mockImplementation(async (body) => {
       if (!body) {
@@ -184,5 +242,36 @@ describe('account-mode publishing interaction', () => {
     fireEvent.click(screen.getByRole('button', { name: '我已授权，检查连接' }));
     expect(await screen.findByText('尚未收到授权，请先在 Netlify 完成确认。')).toBeTruthy();
     expect(mock.build).not.toHaveBeenCalled();
+  });
+  it('ignores an old project response when the project changes while loading', async () => {
+    connected();
+
+    const originalId = mock.project.projectId;
+    const request = mock.request.getMockImplementation()!;
+    let releaseOld: (value: unknown) => void = () => undefined;
+    mock.request.mockImplementation((body) => {
+      if (body?.action === 'job' && body.projectId === originalId) {
+        return new Promise((resolve) => {
+          releaseOld = resolve;
+        });
+      }
+
+      return request(body);
+    });
+
+    const view = render(<PublishingDialog />);
+    fireEvent.click(screen.getByRole('button', { name: '发布网站' }));
+    await waitFor(() => expect(mock.request.mock.calls.some(([body]) => body?.action === 'job')).toBe(true));
+
+    try {
+      mock.project.projectId = 'ee3474eb-d6ad-4a30-8bc4-c3247b2a608a';
+      view.rerender(<PublishingDialog />);
+      await screen.findByText('尚未发布');
+      releaseOld({ phase: 'published', url: 'https://old-project.netlify.app' });
+      await waitFor(() => expect(screen.queryByText('已发布，公网访问已验证')).toBeNull());
+      expect(screen.queryByRole('link', { name: /old-project/ })).toBeNull();
+    } finally {
+      mock.project.projectId = originalId;
+    }
   });
 });

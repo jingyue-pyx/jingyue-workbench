@@ -33,6 +33,18 @@ export async function managedModelRequest(
           ([path]) => !/^(?:package-lock\.json|pnpm-lock\.yaml|yarn\.lock)$/.test(path),
         ),
       ),
+
+      // Put the exact output scope after the large read-only source context.
+      outputContract: payload.batch
+        ? {
+            instruction: '只输出本批次指定文件的合法 JSON 改动。其他源码仅供参考；不能返回示例路径或其他批次文件。',
+            files: payload.batch.files,
+            fullContentPaths: payload.fullFilePaths?.filter((path) =>
+              payload.batch!.files.some((file) => file.path === path),
+            ),
+            editOnlyPaths: payload.batch.editOnlyPaths,
+          }
+        : undefined,
     });
 
   if (new TextEncoder().encode(content).byteLength > 650000) {

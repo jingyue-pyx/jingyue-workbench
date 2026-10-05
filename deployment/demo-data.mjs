@@ -43,8 +43,10 @@ export function validateDemoRequest(body) {
 }
 
 export function createDemoDataStore(env, fetcher = globalThis.fetch) {
+  // Supabase credentials are shared with app authentication. A data project is
+  // the explicit opt-in; configuring auth alone must not enable demo storage.
+  if (!env.JINGYUE_DEMO_WORKBENCH_PROJECT) return null;
   const names = ['JINGYUE_SUPABASE_URL', 'JINGYUE_SUPABASE_SERVICE_KEY', 'JINGYUE_DEMO_WORKBENCH_PROJECT'];
-  if (names.every((name) => !env[name])) return null;
   if (names.some((name) => !env[name])) throw new Error('Incomplete demo data configuration.');
   const url = new URL(env.JINGYUE_SUPABASE_URL);
   if (

@@ -1,5 +1,7 @@
 # 鲸月工作台：阿里云私有体验部署
 
+> 当前状态（2026-10-05）：用户 Netlify 授权与静态网站公网发布已启用，首次发布及同站点更新已实测。下方按日期保留了曾经禁用的历史状态；以文末最新记录为准。OpenCode 不在公网启用，生成应用预览专用认证/存储不随静态网站发布。
+
 这是 **当前鲸月 / Onlook / 百炼工作台** 的独立部署入口，不是旧 `atoms-demo` 制品，也不是公开多租户生产系统。现有受限内测已部署至香港 FC，域名、HTTPS 和项目持久化已接通；2026-09-28 已切换独立账号注册登录，当前账号模式配置以 [ACCOUNTS.md](ACCOUNTS.md) 为准。下方 Basic 配置保留用于理解旧入口，不能当作当前多用户部署方案。验收范围及未完成项见根目录 [JINGYUE.md](../JINGYUE.md)。
 
 ## 为什么单独加部署入口
@@ -181,11 +183,238 @@ checks are separate from build and persistence checks.
 
 Provider usage reference: [Bailian streaming usage](https://www.alibabacloud.com/help/en/model-studio/stream).
 
-## Netlify personal-account static publishing (local implementation; disabled by default)
+## Netlify personal-account static publishing (user entry deployed; provider disabled by default)
 
-This is separate from the legacy browser-token connector. Account-mode users use
-the project header's **发布网站** dialog. The workbench layout and model workflow
-are unchanged. This integration does not publish the workbench itself.
+This is separate from the legacy browser-token connector. Account-mode users can
+connect under **Settings → Connection → Netlify 连接**, even without opening a
+project. The project header's **发布网站** dialog shares the same authorization
+component. The workbench layout and model workflow are unchanged. This integration
+does not publish the workbench itself.
+
+The entry distinguishes platform-disabled, disconnected, awaiting official
+consent, and connected states. It accepts no personal tokens or OAuth application
+secrets. When disabled, it explains that setup belongs to the administrator and
+offers a status recheck; adding this entry does not enable cloud publishing.
+Users explicitly open the verified Netlify ticket URL, approve on Netlify, then
+check the connection. Merely entering Settings creates no ticket or site. Disconnect
+has its own confirmation, removes only the workbench's binding, and explains that
+full revocation must be performed on Netlify. Published sites are not deleted.
+
+2026-10-05 entry verification: 651 application tests, 20 publishing/setup tests,
+TypeScript, changed-file lint and the production build passed. On an isolated
+local workbench (new test database, no selected project), Settings rendered the
+connection entry, a real Netlify ticket URL was returned, and checking before
+official consent correctly stayed pending. Success/disconnect/error states were
+covered with mocked provider responses. The subsequent public rollout is recorded
+below; this entry does not enable standalone generated-app authentication.
+
+### User connection entry public rollout (2026-10-05)
+
+- Deployed `jingyue-private-rJyrBw.zip` to the existing Hong Kong FC
+  `jingyue-workbench` / `jingyue-christine.xin`. No environment variables,
+  credentials, database permissions, schemas or resource specifications changed.
+  The previous `jingyue-private-IlmPoV.zip` remains available locally for rollback.
+- Browser acceptance exposed the pre-existing 1200px fixed settings dialog being
+  clipped in the 530px side panel. Limited the dialog to viewport width, allowed
+  header wrapping, and labelled its back/close buttons. Local 530px acceptance
+  measured the dialog at 498px with 16px margins; public read-back also displayed
+  the entire Netlify card and working status-recheck button.
+- Final build, type check, changed-file lint and 25 focused publishing UI tests
+  passed. Secret scanning and all 74 packaged checks passed with no real model
+  or database calls. Prior complete application regression passed 651 tests;
+  the small responsive-only follow-up reran the focused suite above.
+- Public `/healthz` and `/login` returned 200; unauthenticated `/api/projects`
+  and `/api/publishing` returned 401. Settings → Connection and the project
+  publishing dialog both showed the new shared authorization UI. Rechecking
+  correctly retained the platform-disabled state, not a false connection.
+- Whole-page reload preserved the workbench login and restored acceptance
+  project `b6d5bc09-1ddc-46e1-bf3e-647e7031d4fc`, its saved source and the preview
+  application's authenticated welcome page. No model call or app registration
+  was made for this deployment verification.
+- Cloud Netlify publishing is still disabled: platform OAuth/encryption/storage
+  setup has not been transferred or enabled by this code-only rollout. No cloud
+  OAuth grant, team selection, website creation or real deployment to Netlify
+  was attempted. Enabling and verifying that separate integration remains work
+  to do; the new entry alone is not an end-to-end publishing acceptance.
+
+### Cloud enablement follow-up (2026-10-05; first static publish verified)
+
+- With explicit authorization, applied `sql/005-publishing.sql` in the existing
+  cloud database as `jingyue_migrator`, then granted only SELECT, INSERT, UPDATE
+  and DELETE to `jingyue_app`. Read-back verified each privilege, migrator table
+  ownership, no PUBLIC grants and no runtime schema CREATE privilege. Existing
+  account, project and source records were not changed.
+- The local platform application ID and stable vault key were checked without
+  printing their values; both were present and the key/file-permission checks
+  passed. Opening the cloud environment editor was denied by the safety check
+  because it could reveal existing credentials; no alternative access path was
+  used. The user subsequently added the three publishing variables manually.
+  The public workbench changed from disabled to enabled, and the user personally
+  granted the Jingyue application on Netlify's official authorization page.
+  The cloud workbench successfully exchanged that grant and displayed the
+  connected account. No local user's Netlify grant was transferred.
+- Real public generation acceptance used a new synthetic project
+  `d19a1622-e821-490b-8631-733d5f4bc3b8`, preserving the existing app-auth demo.
+  The first request was rejected during planning. Reproduction exposed a
+  capability-classifier bug: an explicit exclusion such as “不包含个人数据、
+  登录注册、数据库” was treated as a requirement for real authentication.
+  The local fix removes explicitly negated feature lists before checking all
+  three auth requirements, while preserving later positive requirements.
+  English `registration` is now recognized too. No real-auth validation or
+  publishing restriction was disabled.
+- A second public generation reached the bounded batch budget and stopped
+  without replacing source. Narrowing the test to two generated files produced
+  a styled static page, passed the runtime pipeline and saved source to cloud.
+  Counter increment/reset and a subsequent model-driven copy-only modification
+  were verified in the real preview. Unsupported hosting/security promises in
+  generated copy were removed. A whole-workbench reload restored the modified
+  source and preview without another model call; the counter worked again.
+  Its count correctly reset because this fixture deliberately uses memory-only
+  state, not persistent application data. This does not validate arbitrary large
+  requests or resolve the earlier batch-budget failure.
+- Local fix verification: 664 application tests, 30 publishing/app-auth
+  deployment tests, type check, production build, secret scan and 74 packaged
+  checks passed. The Node gateway tests require loopback permission; their first
+  restricted run failed on port access, and the permitted rerun passed.
+  Candidate package: `jingyue-private-WwH1cj.zip`; it is **not deployed**.
+  The public workbench still runs `jingyue-private-rJyrBw.zip`.
+- Cloud Netlify consent and connection are verified. The selected team was
+  checked in Netlify's official dashboard and is on the Free plan. Publishing
+  saved revision 29 successfully built and uploaded five static artifacts. The
+  Netlify project is `jy-fe7129805a75eef95f551150` (site ID
+  `a85ff6fe-b9ed-4e61-99bb-dbfd2add0adb`), with published deploy
+  `6ac319e5516291aec61bdd1f`. Netlify initially protected the production site;
+  the workbench correctly stopped at `access_unverified`. After the user
+  explicitly confirmed, only this site's production access was made public.
+  Netlify reports **Public production site**, while project management and deploy
+  previews remain private. Team-wide protection was not changed.
+- Returning to the cloud publishing dialog and advancing the existing job
+  changed its status to “已发布，公网访问已验证” for revision 29, without a rebuild.
+  An independent request without cookies or authorization returned HTTP 200
+  directly from `https://jy-fe7129805a75eef95f551150.netlify.app/`. The independent
+  site rendered the expected copy; increment 0 → 2, reset 2 → 0 and full-page
+  refresh passed. The first generated-static-site → cloud save → user OAuth →
+  build/upload → publicly accessible Netlify deployment is verified for this
+  synthetic example. This is not validation of standalone app authentication
+  or backend persistence, which remain outside this publishing scope.
+- A second publish of the same saved revision was started to test site reuse,
+  but the workbench redirected to login during the attempt. No second deploy
+  appeared in the official site's activity, and the first published site remains
+  available. That attempt did not pass; equivalent same-site update acceptance
+  subsequently passed under the dedicated account documented below. No plan
+  upgrade or paid subscription was requested. The separate local capability fix above is still
+  not deployed, and the larger-generation batch-budget issue remains unresolved.
+- With the user's authorization, a dedicated synthetic workbench test account
+  was registered via the public API and signed in through the real login page.
+  Registration, password login, session identity and wrong-password rejection
+  passed. A request for the original owner's synthetic project returned 404,
+  and publishing status confirmed the new account does not inherit that owner's
+  Netlify connection. Its random password is stored outside the repository in a
+  mode-0600 local file, under a mode-0700 directory; no password or session token
+  was printed. With the user's subsequent explicit approval, this account
+  completed its own official Netlify authorization and encrypted cloud binding;
+  no other workbench user's stored grant was copied.
+
+### Independent-account publishing regression (2026-10-05)
+
+- The test account created project `362b23e9-b156-46fc-976e-5b224ab84b52` through
+  the real cloud conversation UI and model pipeline. A minimal React/Vite page
+  was generated, compiled, previewed and cloud-saved. Its counter increment was
+  verified. Revision 7 built and uploaded five artifacts to Netlify site
+  `fdcb751c-9913-4316-89f6-ca914b0bc2bd`, named
+  `jy-a6e266ef751893b769efcc46`.
+- A second real model request changed the heading to “鲸月独立账号验收 · 第二版”
+  and changed the counter button from +1 to +2. Compilation and preview passed;
+  two clicks produced 4. Revision 14 was confirmed by an independent authenticated
+  cloud read, including the modified source. Reading the original user's
+  publishing record as this test user was denied with HTTP 404.
+- Publishing revision 14 reused the **same site ID and hostname**, rather than
+  creating another site. Netlify's official activity shows first deploy
+  `6ac32f2ace190d3303eb3ade` and replacement deploy `6ac3304dc541673232c48112`.
+  The replacement job is `6f9e4818-43ef-4973-95a1-2e38939207a6`.
+  The actual hosted second-version page was checked using the authorized
+  Netlify session: heading, +2 (0 → 4) and reset (4 → 0) passed.
+- A full workbench reload restored the second-version source and preview
+  without another generation request. A separate logout/login check also passed:
+  the same account reopened the project, restored the second-version preview
+  and displayed its existing Netlify connection without another OAuth grant.
+  Recovery/status messages raised the current project revision to 20; the
+  hosted second-version source was published at revision 14.
+- This new site's production access initially remained private: anonymous HTTP
+  checks returned 401 and the job correctly stayed `access_unverified`.
+  After the user explicitly confirmed public access for this site, Netlify
+  displayed “Your project is public” and “Anyone can visit your production
+  site.” Only this site's production access changed; no team setting changed.
+  An independent request without cookies or authorization then returned HTTP
+  200 from `https://jy-a6e266ef751893b769efcc46.netlify.app/`.
+- Advancing the existing job, without another build, changed the workbench to
+  “已发布，公网访问已验证” for revision 14. Reloading the independent public
+  page showed the second-version heading; +2 twice (0 → 4) and reset (4 → 0)
+  passed. This completes the synthetic cloud generation → save → user OAuth →
+  initial publish → same-site update → anonymous access acceptance. It does not
+  validate arbitrary generation requests or standalone backend/auth features.
+  No paid upgrade, Netlify agent run, or backend deployment was made.
+- Evidence outside the repository: `jingyue-qa-republished-v2-20261005.jpg`,
+  `jingyue-qa-site-public-confirmation-20261005.jpg`,
+  `jingyue-qa-public-v2-20261005.jpg` and
+  `jingyue-qa-published-verified-20261005.jpg` in the workspace root.
+
+  Local browser proof files are kept outside the repository:
+  `jingyue-publishing-permissions-20261005.jpg`,
+  `jingyue-cloud-generated-site-20261005.jpg`,
+  `jingyue-cloud-publishing-blocker-20261005.jpg` (historical blocker) and
+  `jingyue-netlify-public-acceptance-20261005.jpg` in the workspace root.
+
+### Public-workflow hardening candidate (2026-10-05; not yet deployed)
+
+Approved scope: increase the bounded task budget, ship the pending capability
+fix, expand real-user acceptance, improve private-site guidance/recovery and
+archive a reproducible version. No daily account quota, cloud resource size,
+subscription, database permission or website access protection is increased.
+
+| Change | Reason | Resulting design |
+| --- | --- | --- |
+| Managed generation budget 16 → 32 calls, 80,000 → 160,000 reserved output tokens | Full file manifests and bounded corrections could exhaust the old budget even with short actual responses | Finite per-task ceilings remain; every call still traverses account/global quotas. Per-call token limits and two code-repair rounds are unchanged. Reservations are conservative and are not a billing cap. |
+| Negated real-auth requirements | “不要登录、注册和数据库” was misclassified as requiring authentication | Excluded feature lists are removed before capability classification; positive requirements still enforce real-auth integration. |
+| Atomic modification batches | Real marketing-page modification returned paths outside its assigned batch, then exhausted scoped correction | Existing-file edits now use one file per call. The output contract is repeated after source context and correction names the allowed and returned paths; scope validation remains strict. Only new modules may share a batch. |
+| Return-to-workbench public check | A provider-ready site can still return anonymous 401 | Focus/visible/online events recheck the existing pending job, with single-flight and a cooldown. Never rebuild, create a duplicate site or disable Netlify protection automatically. |
+| Cancellable publishing | Closing the dialog or switching project could leave requests/polling active | Abort signals reach fetch and backoff; late status responses cannot update another project. Already-submitted remote operations are preserved for reconciliation. |
+| Dependency and preview reuse | A snapshot can omit runtime lockfiles; retrying preview transport should not redo compilation | Same-sandbox unchanged dependency inputs reuse a checked install. Unchanged compiled source reuses a live development server and reruns the authenticated frame handshake. Whole-page refresh still creates a new browser sandbox. |
+| Publishing install recovery | SDK stdout can stay open after process exit, and registry failures can be transient | Exit code remains authoritative; output drain is bounded. Retry transient installation once, never retry code errors or blindly repeat provider creation. |
+| Traceable releases | A visible UI alone cannot establish which bundle is online | The archive includes `release.json` with source commit, dirty flag and build time. `X-Jingyue-Release` exposes only a validated server-bundle SHA-256; packaging also reports ZIP SHA-256. CI covers main and codex branches on Node 22. |
+
+Verification so far: 678 application tests and 128 deployment tests passed;
+TypeScript and production build passed. On this local Node 25 environment the
+first application run hit native Web Storage / jsdom conflicts; rerunning with
+`NODE_OPTIONS=--no-experimental-webstorage` passed without changing assertions.
+CI uses Node 22 to match the deployment runtime. The restricted build initially
+could not open the local proxy port; the approved rerun passed. Browser/model
+acceptance and the final release artifact are recorded below as they complete.
+
+Real-browser check uses an isolated local workbench database and the real Bailian
+model, not the production user projects. A marketing Agent with campaign list,
+filters, form, statistics and details generated, typechecked, built and previewed.
+Creating a campaign with an 8,000 budget and opening its details worked. After a
+graceful service restart and whole-page refresh, conversations, saved source and
+preview recovered without regenerating source. In-memory campaign entries reset
+as requested; that is not a test of remote business-data persistence.
+
+The first follow-up modification failed strict batch-scope validation and did
+not overwrite the prior preview. The atomic-file correction above is covered by
+regression tests; its real-model recheck and the supply-chain scenario remain
+release gates, not claimed successes. One recheck also hit a model stream
+interruption before planning. Keep these results distinct from unit-test passes.
+
+Deployment gate: do not count the existing online small-page acceptance as
+acceptance of this new candidate. The cloud configuration console remains outside
+the approved tool access path; no alternative credential/API route is used to
+bypass that denial. A new archive can be handed off for the existing function's
+code-only update, preserving all environment variables, permissions and resources.
+After upload, compare `X-Jingyue-Release` with `release.json`, then rerun the
+generation / modification / save / publish acceptance before marking deployed.
+Rollback uses the retained previous `jingyue-private-rJyrBw.zip`, with the same
+environment and database; do not reverse additive auth/publishing migrations or
+delete projects to roll back code.
 
 ### Setup and release gate
 
@@ -374,3 +603,121 @@ References: [Netlify API](https://open-api.netlify.com/),
   correction was additionally covered by 193 targeted tests. This is a local
   acceptance fix, not a production rollout or a claim of stable generation for
   all requests.
+
+## Generated-application authentication — preview-only opt-in
+
+This supersedes the earlier unsupported-auth boundary **only when** the server
+explicitly enables `JINGYUE_APP_AUTH_ENABLED=1`. Workbench login is unchanged.
+Supabase Auth stores application users and verifies passwords. The existing
+server-only `JINGYUE_SUPABASE_URL` / `JINGYUE_SUPABASE_SERVICE_KEY` configuration
+is reused; never expose the secret to a generated project, browser or repository.
+
+- Apply `sql/006-app-auth.sql` with the migration role, then apply
+  `sql/007-app-auth-runtime-grants.sql` in the existing `jingyue` database to grant
+  runtime SELECT/INSERT/UPDATE/DELETE on its three tables. Production boot never applies
+  this migration. The local managed preview applies it to its local test DB.
+- Usernames are scoped to the owning workbench account and project. Synthetic
+  non-deliverable identities are created through the server-only admin API;
+  this is username authentication, not verified ownership of an email address.
+- `POST /api/app-auth/:projectId` requires the workbench session, same-origin
+  request, current account header and project ownership. Bounded actions are
+  status/session/register/login/logout. No SQL or arbitrary provider URL.
+- Passwords are validated by Supabase and never persisted by the workbench.
+  The temporary Supabase password-check session is closed immediately. The
+  browser receives an independent HttpOnly/SameSite=Strict, production Secure,
+  path-scoped cookie; only its SHA-256 digest is stored in the workbench DB.
+  Sessions expire after 24 hours and are invalidated by logout or changed/deleted
+  upstream identity. At most five sessions are retained per application user.
+- Demo limits: 20 identities per project, 100 per owner, ten register/login
+  attempts per username per 15 minutes, 120 total auth requests per project per
+  15 minutes, two concurrent gateway requests. Reservations count toward the
+  limit even after an uncertain remote response; try login after a lost reply.
+- `src/lib/jingyue-auth.ts` is the platform-owned generated-app hook. Its
+  preview bridge checks the iframe source and origin, sends credentials only
+  after binding to the workbench origin, and returns only the public profile.
+  The helper never persists passwords or tokens. Model capability flags are
+  derived from the server, and a real-auth task must actually import the hook.
+- Business-data row permissions, roles, password reset, email/SMS verification
+  and standalone Netlify authentication are **not** delivered by this slice.
+  Publishing artifacts using the preview-auth bridge is blocked. A public
+  gateway and allowed-domain binding are separate future work.
+
+Local verification: `JINGYUE_RUN_AUTH_LIVE=1 node deployment/app-auth-live.mjs`
+uses the protected local configuration, creates one isolated synthetic user,
+checks real password verification/relogin/session/logout, then deletes that
+exact test user. It prints only pass/fail metadata, not credentials.
+
+### Preview-auth acceptance (2026-10-04)
+
+- Replayed the original registration/login query against the real model. The
+  generated React application uses the platform helper and real Supabase Auth;
+  registration, duplicate-account rejection, wrong-password rejection, later
+  login, session restore and logout passed the live integration check. Its
+  isolated synthetic integration-test identity was removed after verification.
+- Browser acceptance additionally verified the generated login screen, wrong
+  password feedback, authenticated dashboard, whole-workbench refresh and mouse
+  logout. One automatic repair resolved a generated duplicate BrowserRouter.
+  Acceptance also exposed independent hook instances and focus checks that
+  unmounted buttons during clicks. The canonical helper now shares one
+  in-memory auth store and keeps background session checks non-blocking; both
+  defects have regression coverage and were rechecked on the same project.
+- 633 application tests, 126 deployment tests, TypeScript and production build
+  passed. The release credential scan and 74 packaged-server checks passed;
+  package checks made no real model/database calls. The package was checked on
+  macOS, not Linux. This is local preview acceptance, not a production rollout,
+  a standalone published-site auth service, or proof that every generated app
+  is correct. A separate synthetic UI account remains for local acceptance.
+
+### Public rollout (2026-10-04; authenticated cloud smoke test passed)
+
+- Existing target verified: Hong Kong FC `jingyue-workbench`, Node.js 22,
+  1 vCPU / 2 GB, custom domain `jingyue-christine.xin`. No resource changes.
+- User approved the three-table runtime grant and transfer of the existing
+  Supabase server configuration to this FC function. The three app-auth tables
+  were created as `jingyue_migrator`. Read-back verified all three allow runtime
+  SELECT/INSERT/UPDATE/DELETE, are owned by the migrator, and the runtime role
+  still cannot CREATE in the schema. PUBLIC privileges on these tables were
+  revoked. The existing project count remains 16; no project migration/deletion.
+- Current deployed code was exported and copied to the ignored local release
+  directory as `jingyue-pre-app-auth-20261004.zip` (5,660,502 bytes). A new FC
+  version snapshot was attempted but not verified; only the downloaded code
+  backup is confirmed. Existing cloud version 1 is older and must not be
+  presented as a snapshot of today's LATEST configuration.
+- Initial artifact `jingyue-private-ohBom6.zip` failed cloud startup after auth
+  configuration activated a legacy demo-storage configuration check. Auth and
+  demo data share credentials, but demo data now opts in only through its own
+  project binding. Invalid credentials still fail closed when data is enabled.
+- Recovery incident: the console reordered environment rows after saving.
+  Clearing new settings by stale row positions affected three original fields.
+  They were restored from the retained original form, with accessibility
+  metadata stripped. The old workbench access credential also appeared in a
+  diagnostic tool result; user was informed and credential rotation is pending.
+  No credential is recorded here. Future configuration updates must resolve
+  rows by variable name and verify original values without logging them.
+- Original code/configuration recovery was verified with HTTP 200, then fixed
+  artifact `jingyue-private-IlmPoV.zip` (6.08 MiB displayed by FC) was deployed.
+  Supabase URL/key and `JINGYUE_APP_AUTH_ENABLED=1` were set by variable name,
+  preserving existing fields. No Netlify or OpenCode cloud execution enabled.
+- Fixed release: 18 focused and 127 total deployment tests passed; secret scan
+  and 74 packaged checks passed. An additional auth-only packaged startup check
+  verified health/login HTTP 200 using synthetic configuration and zero external
+  requests. Final public `/healthz` and `/login` returned 200; unauthenticated
+  app-auth returned 401. The public login page rendered in the browser.
+- The user subsequently signed into the public workbench. A separate acceptance
+  project (`b6d5bc09-1ddc-46e1-bf3e-647e7031d4fc`) replayed the real registration/
+  login query: generation, dependency installation, checks and preview readiness
+  completed; the login and registration forms rendered and cloud save was
+  confirmed. Existing projects were not changed. This new test project is in
+  addition to the 16 projects counted before rollout.
+- The user completed the preview-app credential flow. The generated application
+  displayed an authenticated welcome page. A whole-workbench reload restored the
+  saved source and the same application identity without another model call.
+  A project-scoped, read-only database query confirmed one mapped remote account
+  and one unexpired session. No password, token or session digest was queried.
+  This verifies the public preview authentication/session-restoration path, not
+  merely the local tests or an in-memory logged-in UI.
+- Duplicate-account/wrong-password rejection, logout and cross-project isolation
+  have local integration/regression evidence above, but have not been replayed
+  in this public browser acceptance. The public account is left signed in for
+  user acceptance; do not claim the entire negative-path suite passed publicly.
+  Standalone Netlify authentication remains out of scope.

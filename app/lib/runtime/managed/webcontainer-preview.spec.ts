@@ -62,6 +62,38 @@ afterEach(() => {
 });
 
 describe('preview verification handshake', () => {
+  it('reconnects after a transport failure without reinstalling or rebuilding unchanged source', async () => {
+    vi.useFakeTimers();
+
+    const runtime = fixture();
+    const first = runtime.verify(files, new AbortController().signal, vi.fn()).catch((e) => e);
+    await vi.advanceTimersByTimeAsync(75001);
+    expect(await first).toMatchObject({ category: 'preview-network' });
+
+    const commandCount = vi.mocked(runtime.command).mock.calls.length;
+    const stage = vi.fn();
+    const second = runtime.verify(files, new AbortController().signal, stage);
+    await vi.advanceTimersByTimeAsync(1);
+
+    const frame = document.querySelector('iframe')!;
+    const url = new URL(frame.src);
+    window.dispatchEvent(
+      new MessageEvent('message', {
+        source: frame.contentWindow!,
+        origin: url.origin,
+        data: {
+          type: 'jingyue:runtime-check',
+          runId: url.searchParams.get('__jingyue_check'),
+          attempt: url.searchParams.get('__jingyue_attempt'),
+          ok: true,
+        },
+      }),
+    );
+    await expect(second).resolves.toBe('https://preview.example.test');
+    expect(vi.mocked(runtime.command).mock.calls).toHaveLength(commandCount);
+    expect(stage.mock.calls.every(([phase]) => phase === 'previewing')).toBe(true);
+    runtime.stop();
+  });
   it('serves a self-contained probe without editing user HTML or replacing Vite configuration', () => {
     const script = previewServerScript(previewProbeScript('test-run', 'https://workbench.test'));
     expect(script).toContain("import { createServer } from 'vite'");

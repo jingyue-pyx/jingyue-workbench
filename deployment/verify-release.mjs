@@ -1,6 +1,7 @@
 import { spawn, execFileSync } from 'node:child_process';
 import { createServer } from 'node:net';
 import { once } from 'node:events';
+import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import assert from 'node:assert/strict';
@@ -258,9 +259,13 @@ try {
       await new Promise((r) => setTimeout(r, 20));
     assert.ok(modelEvents.some((e) => e.event === 'mock_model_call' && e.allowed && e.authenticated && e.cancellable));
     assert.ok(modelEvents.some((e) => e.event === 'mock_model_cancelled'));
-    assert.deepEqual(await (await fetch(origin + '/healthz')).json(), { status: 'ok' });
+    const health = await fetch(origin + '/healthz');
+    assert.deepEqual(await health.json(), { status: 'ok' });
+    const release = JSON.parse(await readFile(resolve(directory, 'release.json'), 'utf8'));
+    assert.match(release.releaseId, /^[a-f0-9]{64}$/);
+    assert.equal(health.headers.get('x-jingyue-release'), release.releaseId);
     assert.equal((await fetch(origin + '/api/models/Bailian', { headers: { authorization: auth } })).status, 200);
-    checks += 5;
+    checks += 7;
   } finally {
     clearTimeout(timeout);
     stop.abort();

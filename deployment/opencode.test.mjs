@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtemp, writeFile, symlink, link } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { agentConfig, changedFiles, sourcePath, validateInput } from './opencode/protocol.mjs';
+import { agentConfig, changedFiles, sourcePath, validateInput, taskPrompt } from './opencode/protocol.mjs';
 import { readCandidate } from './opencode/runner.mjs';
 import { createAgentModelProxy } from './opencode/model-proxy.mjs';
 import { createServeClient } from './opencode/serve-client.mjs';
@@ -13,6 +13,37 @@ import { missingStyleImports } from './opencode/styles.mjs';
 import { Readable } from 'node:stream';
 
 const id = '00000000-0000-4000-8000-000000000001';
+test('agent auth capability comes from the server, not a forged browser flag', async () => {
+  for (const enabled of [false, true]) {
+    let seen;
+    const req = Readable.from([Buffer.from(JSON.stringify({ ...input(), appAuthEnabled: !enabled }))]);
+    req.method = 'POST';
+    await handleAgentApi({
+      req,
+      pathname: '/api/opencode',
+      config: { localTest: true },
+      user: { id: 'alice' },
+      appAuthEnabled: enabled,
+      projects: { forOwner: () => ({ get: async () => ({ deletedAt: null }) }) },
+      res: { writeHead() {}, flushHeaders() {}, write() {}, end() {}, destroyed: false, writableEnded: false },
+      signal: new AbortController().signal,
+      charge: async () => () => {},
+      headers: {},
+      send() {
+        throw new Error('unexpected rejection');
+      },
+      report() {},
+      runner: {
+        run: async (value) => {
+          seen = value;
+          return { files: [] };
+        },
+      },
+    });
+    assert.equal(seen.appAuthEnabled, enabled);
+    assert.equal(taskPrompt(seen).includes('useAppAuth'), enabled);
+  }
+});
 test('style entry checks catch orphan CSS and follow component/module/CSS imports', () => {
   const files = {
     'index.html': '<script type="module" src="/src/main.tsx"></script>',

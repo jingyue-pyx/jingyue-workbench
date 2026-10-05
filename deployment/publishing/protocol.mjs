@@ -52,8 +52,8 @@ export function validateArtifacts(input) {
     const text = bytes.toString('utf8');
     if (containsCredential(text) || /(?:nfp_[A-Za-z0-9]{20,}|-----BEGIN .*PRIVATE KEY-----)/.test(text))
       fail('ARTIFACT_SECRET', '产物疑似包含凭据，已阻止上传。请先移除服务端密钥。');
-    if (/jingyue[.-]demo[.-]data|jingyue:demo-data|jingyue:data-(?:connect|request)|\/api\/demo-data\//i.test(text))
-      fail('PREVIEW_STORAGE_ONLY', '此页面依赖工作台预览存储，尚不能作为独立网站发布。');
+    if (/jingyue[.-]demo[.-]data|jingyue:demo-data|jingyue:(?:data|auth)-(?:connect|request)|\/api\/(?:demo-data|app-auth)\//i.test(text))
+      fail('PREVIEW_STORAGE_ONLY', '此页面依赖工作台预览存储或认证，尚不能作为独立网站发布。');
     paths.add(entry.path);
     return { ...entry, digest: createHash('sha1').update(bytes).digest('hex') };
   });

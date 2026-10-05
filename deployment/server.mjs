@@ -1,5 +1,6 @@
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { readFile } from 'node:fs/promises';
 import { createRequestHandler } from '@remix-run/node';
 import * as build from '../build/server/index.js';
 import { configuration } from './security.mjs';
@@ -9,6 +10,7 @@ import { createProjectStore } from './project-store.mjs';
 import { AccountStore } from './accounts.mjs';
 import { createDemoDataStore } from './demo-data.mjs';
 import { createPublishingService } from './publishing/service.mjs';
+import { createAppAuthService } from './app-auth.mjs';
 
 // Upstream logs may contain raw SDK errors, prompts, or request headers. Only
 // fixed deployment events are emitted, never raw upstream console arguments.
@@ -30,11 +32,14 @@ process.on('unhandledRejection', (error) => {
 try {
   if (Number(process.versions.node.split('.')[0]) < 22) throw new Error('Node 22 or later is required.');
   const config = configuration(process.env);
+  // Optional for older packages. The gateway admits only a fixed digest to headers.
+  const release = await readFile(new URL('./release.json', import.meta.url), 'utf8').then(JSON.parse).catch(() => null);
   // Capture native fetch before installing the model-only outbound adapter.
   const demoDataStore = createDemoDataStore(process.env, globalThis.fetch);
   const network = createModelNetwork(config);
   const projectStore = await createProjectStore(process.env, report);
   const publishingService = createPublishingService(process.env, projectStore, globalThis.fetch);
+  const appAuthService = createAppAuthService(process.env, projectStore, globalThis.fetch);
   if (config.authMode === 'accounts' && !projectStore) throw new Error('Account storage is required.');
   const accountStore = config.authMode === 'accounts' ? new AccountStore(projectStore.pool, config, projectStore.ownerId) : null;
   globalThis.fetch = network.fetch;
@@ -48,6 +53,8 @@ try {
     accountStore,
     demoDataStore,
     publishingService,
+    appAuthService,
+    releaseId: release?.releaseId,
   });
   server.listen(config.port, config.host, () => report('private_preview_ready'));
 } catch {

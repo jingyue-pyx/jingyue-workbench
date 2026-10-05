@@ -56,10 +56,23 @@ test('Supabase demo configuration fails closed and does not accept caller-contro
     'https://u:p@abcdefghijklmnopqrst.supabase.co',
   ])
     assert.throws(() => createDemoDataStore({ ...env, JINGYUE_SUPABASE_URL: url }));
-  assert.throws(() => createDemoDataStore({ JINGYUE_SUPABASE_URL: env.JINGYUE_SUPABASE_URL }));
+  assert.throws(() => createDemoDataStore({ JINGYUE_DEMO_WORKBENCH_PROJECT: projectId }));
+  assert.throws(() => createDemoDataStore({ ...env, JINGYUE_SUPABASE_SERVICE_KEY: '' }));
   assert.throws(() => createDemoDataStore({ ...env, JINGYUE_DEMO_WORKBENCH_PROJECT: '*' }));
   assert.equal(demoDataRoute(`/api/demo-data/${projectId}/status`).projectId, projectId);
   assert.equal(demoDataRoute('/api/demo-data/../../secrets'), null);
+});
+
+test('auth-only Supabase configuration does not implicitly enable project data storage', () => {
+  const authOnly = {
+    JINGYUE_APP_AUTH_ENABLED: '1',
+    JINGYUE_SUPABASE_URL: env.JINGYUE_SUPABASE_URL,
+    JINGYUE_SUPABASE_SERVICE_KEY: env.JINGYUE_SUPABASE_SERVICE_KEY,
+  };
+  assert.equal(createDemoDataStore(authOnly), null);
+  assert.equal(createDemoDataStore({ ...authOnly, JINGYUE_DEMO_WORKBENCH_PROJECT: '' }), null);
+  assert.equal(createDemoDataStore({ ...authOnly, JINGYUE_APP_AUTH_ENABLED: '0' }), null);
+  assert.ok(createDemoDataStore({ ...authOnly, JINGYUE_DEMO_WORKBENCH_PROJECT: projectId }));
 });
 
 test('demo requests reject SQL, owner/project overrides, oversized data and missing revisions', () => {

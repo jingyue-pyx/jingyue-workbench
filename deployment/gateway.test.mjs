@@ -94,6 +94,15 @@ test('gateway authenticates every surface except minimal health status', async (
   assert.equal((await fetch(origin + '/', { headers: { authorization: 'Basic d3Jvbmc6d3Jvbmc=' } })).status, 401);
 });
 
+test('release provenance is a safe digest header, never arbitrary configuration', async (t) => {
+  const valid = await fixture(t, { releaseId: 'a'.repeat(64) });
+  const response = await fetch(valid.origin + '/healthz');
+  assert.equal(response.headers.get('x-jingyue-release'), 'a'.repeat(64));
+  assert.deepEqual(await response.json(), { status: 'ok' });
+  const invalid = await fixture(t, { releaseId: 'private-canary' });
+  assert.equal((await fetch(invalid.origin + '/healthz')).headers.get('x-jingyue-release'), null);
+});
+
 test('template and chat entry share server model status without exposing the key', async (t) => {
   const { origin, received } = await fixture(t);
   for (const referer of ['/', '/git?url=https://github.com/example/template.git', '/chat/example']) {

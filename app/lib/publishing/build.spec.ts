@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { WebContainer } from '@webcontainer/api';
 import type { Snapshot } from '~/lib/persistence/types';
 import { binaryBase64, buildPublishArtifacts, publishingSources } from './build';
@@ -45,8 +45,56 @@ const fakeContainer = (exit = 0) => {
 
   return { container: { spawn, fs } as unknown as WebContainer, spawn, fs, writes };
 };
+afterEach(() => vi.useRealTimers());
 
 describe('static publishing build boundary', () => {
+  it('uses process exit even when the SDK never closes stdout', async () => {
+    vi.useFakeTimers();
+
+    const f = fakeContainer();
+    f.spawn.mockImplementation(async () => ({
+      exit: Promise.resolve(0),
+      kill: vi.fn(),
+      output: new ReadableStream({
+        start(c) {
+          c.enqueue('done');
+        },
+      }),
+    }));
+
+    const result = buildPublishArtifacts(f.container, snapshot(), new AbortController().signal, vi.fn());
+    await vi.advanceTimersByTimeAsync(2500);
+    await expect(result).resolves.toHaveLength(2);
+    expect(f.spawn).toHaveBeenCalledTimes(2);
+  });
+  it('retries only a transient install failure and never duplicates the build', async () => {
+    vi.useFakeTimers();
+
+    const f = fakeContainer();
+    f.spawn.mockResolvedValueOnce({
+      exit: Promise.resolve(1),
+      kill: vi.fn(),
+      output: new ReadableStream({
+        start(c) {
+          c.enqueue('npm error ECONNRESET');
+          c.close();
+        },
+      }),
+    });
+
+    const result = buildPublishArtifacts(f.container, snapshot(), new AbortController().signal, vi.fn());
+    await vi.advanceTimersByTimeAsync(1100);
+    await expect(result).resolves.toHaveLength(2);
+    expect(f.spawn.mock.calls.filter(([, args]) => args[0] === 'install')).toHaveLength(2);
+    expect(f.spawn.mock.calls.filter(([, args]) => args.includes('build'))).toHaveLength(1);
+  });
+  it('does not retry a package conflict', async () => {
+    const f = fakeContainer(1);
+    await expect(buildPublishArtifacts(f.container, snapshot(), new AbortController().signal, vi.fn())).rejects.toThrow(
+      '未上传',
+    );
+    expect(f.spawn).toHaveBeenCalledTimes(1);
+  });
   it('copies only the frozen snapshot and preserves binary content', () => {
     const files = publishingSources(snapshot());
     expect(files['.env']).toBeUndefined();

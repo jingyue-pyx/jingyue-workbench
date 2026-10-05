@@ -51,8 +51,9 @@ await build({
     import { createDemoDataStore } from './deployment/demo-data.mjs';
     import { createLocalOpenCode } from './deployment/opencode/runner.mjs';
     import { createPublishingService } from './deployment/publishing/service.mjs';
+    import { createAppAuthService } from './deployment/app-auth.mjs';
     const database = await openPreviewDatabase(${JSON.stringify(databaseDirectory)});
-    for (const file of ['001-projects.sql','003-accounts.sql','005-publishing.sql']) await database.exec(await readFile(${JSON.stringify(resolve(root, 'deployment/sql'))}+'/'+file, 'utf8'));
+    for (const file of ['001-projects.sql','003-accounts.sql','005-publishing.sql','006-app-auth.sql']) await database.exec(await readFile(${JSON.stringify(resolve(root, 'deployment/sql'))}+'/'+file, 'utf8'));
     let previous=Promise.resolve();
     const pool={async connect(){const wait=previous;let release;previous=new Promise(r=>release=r);await wait;return {query:(s,a)=>database.query(s,a),release};},async query(s,a){const c=await this.connect();try{return await c.query(s,a);}finally{c.release();}}};
     const config=configuration({JINGYUE_PUBLIC_ORIGIN:'http://127.0.0.1:${previewPort}',JINGYUE_LOCAL_TEST:'1',PORT:'${previewPort}',WORKBENCH_ACCESS_USER:'local-preview-owner',WORKBENCH_ACCESS_PASSWORD:randomBytes(32).toString('base64url'),JINGYUE_AUTH_MODE:'accounts',JINGYUE_REGISTRATION_OPEN:'1',JINGYUE_USER_DAILY_REQUESTS:${JSON.stringify(String(modelLimit))},DASHSCOPE_API_KEY:process.env.DASHSCOPE_API_KEY,DASHSCOPE_BASE_URL:process.env.DASHSCOPE_BASE_URL});
@@ -65,7 +66,8 @@ await build({
     const opencodeRunner=process.env.JINGYUE_LOCAL_AGENT==='opencode' ? await createLocalOpenCode({config,report}) : null;
     const projectStore=new PostgresProjectStore(pool,owner);
     const publishingService=createPublishingService(process.env,projectStore);
-    const server=await createGateway({config,demoDataStore,opencodeRunner,publishingService,report,clientDirectory:${JSON.stringify(snapshot.clientDirectory)},accountStore:accounts,projectStore,handler:async (request,context)=>createRequestHandler(app,'production')(request,context)});
+    const appAuthService=createAppAuthService(process.env,projectStore);
+    const server=await createGateway({config,demoDataStore,opencodeRunner,publishingService,appAuthService,report,clientDirectory:${JSON.stringify(snapshot.clientDirectory)},accountStore:accounts,projectStore,handler:async (request,context)=>createRequestHandler(app,'production')(request,context)});
     server.listen(${previewPort},'127.0.0.1',()=>process.stdout.write('Managed runtime preview ready at http://127.0.0.1:${previewPort}/register; local workbench database; optional demo backend configured: '+Boolean(demoDataStore)+'; model limit ${modelLimit}/day.\\n'));
     let stopping=false;
     const stop=()=>{

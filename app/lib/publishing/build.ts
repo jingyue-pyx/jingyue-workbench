@@ -1,6 +1,16 @@
 import type { WebContainer, WebContainerProcess } from '@webcontainer/api';
 import type { Snapshot } from '~/lib/persistence/types';
 import { excludedProjectPath, relativeProjectPath } from '~/lib/persistence/project-document';
+import { publishingDelay } from './polling';
+
+class PublishBuildError extends Error {
+  constructor(
+    message: string,
+    readonly retryable: boolean,
+  ) {
+    super(message);
+  }
+}
 
 export interface PublishArtifact {
   path: string;
@@ -92,7 +102,7 @@ export async function buildPublishArtifacts(
           signal.addEventListener('abort', cancel, { once: true });
           timer = setTimeout(() => {
             process?.kill();
-            reject(new Error('发布构建超时，请检查依赖后重试。'));
+            reject(new PublishBuildError('发布构建超时，请检查依赖后重试。', true));
           }, ms);
         }),
       ]);
@@ -123,13 +133,46 @@ export async function buildPublishArtifacts(
      * Drain output to avoid backpressure. Do not send raw build logs/secrets
      * to the publishing service or render them as HTML.
      */
-    const output = child.output.pipeTo(new WritableStream({ write() {} })).catch(() => {});
-    const code = await bounded(child.exit, 180000);
-    await bounded(output);
-    process = undefined;
+    let tail = '';
+    const outputAbort = new AbortController();
+    const output = child.output
+      .pipeTo(
+        new WritableStream({
+          write(chunk) {
+            tail = (tail + chunk).slice(-8000);
+          },
+        }),
+        { signal: outputAbort.signal },
+      )
+      .catch(() => {});
+    let flushTimer: ReturnType<typeof setTimeout> | undefined;
 
-    if (code !== 0) {
-      throw new Error(`${message}失败（退出码 ${code}），未上传。请在原预览中修复后重试。`);
+    try {
+      const code = await bounded(child.exit, 180000);
+
+      // Process exit is authoritative even when the SDK keeps stdout open.
+      await bounded(
+        Promise.race([
+          output,
+          new Promise<void>((resolve) => {
+            flushTimer = setTimeout(resolve, 1000);
+          }),
+        ]),
+      );
+      signal.throwIfAborted();
+
+      if (code !== 0) {
+        const network =
+          /ETIMEDOUT|ECONNRESET|EAI_AGAIN|ENETUNREACH|ECONNREFUSED|ENOTFOUND|E429|\b429\s+Too Many Requests/i.test(
+            tail,
+          );
+        throw new PublishBuildError(`${message}失败（退出码 ${code}），未上传。请在原预览中修复后重试。`, network);
+      }
+    } finally {
+      clearTimeout(flushTimer);
+      outputAbort.abort();
+      child.kill();
+      process = undefined;
     }
   };
 
@@ -145,10 +188,32 @@ export async function buildPublishArtifacts(
       await bounded(container.fs.writeFile(`${directory}/${path}`, content));
     }
 
-    await run(
-      [sources['package-lock.json'] ? 'ci' : 'install', '--ignore-scripts', '--no-audit', '--no-fund'],
-      '安装发布依赖',
-    );
+    for (let retry = 0; ; retry++) {
+      try {
+        await run(
+          [
+            sources['package-lock.json'] ? 'ci' : 'install',
+            '--ignore-scripts',
+            '--no-audit',
+            '--no-fund',
+            '--prefer-offline',
+            '--fetch-timeout=30000',
+            '--fetch-retries=1',
+          ],
+          '安装发布依赖',
+        );
+        break;
+      } catch (error) {
+        signal.throwIfAborted();
+
+        if (retry >= 1 || !(error instanceof PublishBuildError) || !error.retryable) {
+          throw error;
+        }
+
+        progress('依赖网络暂时不可用，重试 1/1；保留源码，不重新生成，也不会重复建站。');
+        await publishingDelay(1000, signal);
+      }
+    }
 
     if (sources['tsconfig.json']) {
       await run(['exec', '--no', '--', 'tsc', '--noEmit'], '检查类型');

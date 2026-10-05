@@ -4,6 +4,7 @@ import { classNames } from '~/utils/classNames';
 import ConnectionDiagnostics from './ConnectionDiagnostics';
 import { Button } from '~/components/ui/Button';
 import VercelConnection from './VercelConnection';
+import { currentAccount } from '~/lib/auth/account-context';
 
 // Use React.lazy for dynamic imports
 const GitHubConnection = React.lazy(() => import('./GithubConnection'));
@@ -27,7 +28,7 @@ export default function ConnectionsTab() {
     <div className="space-y-6">
       {/* Header */}
       <motion.div
-        className="flex items-center justify-between gap-2"
+        className="flex flex-wrap items-center justify-between gap-2"
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ delay: 0.1 }}
@@ -116,12 +117,16 @@ export default function ConnectionsTab() {
                 <div className="text-bolt-elements-textPrimary dark:text-bolt-elements-textPrimary">
                   VITE_GITHUB_TOKEN_TYPE=classic|fine-grained
                 </div>
-                <div className="text-bolt-elements-textSecondary dark:text-bolt-elements-textSecondary mt-2">
-                  # Netlify Authentication
-                </div>
-                <div className="text-bolt-elements-textPrimary dark:text-bolt-elements-textPrimary">
-                  VITE_NETLIFY_ACCESS_TOKEN=your_token_here
-                </div>
+                {!currentAccount && (
+                  <>
+                    <div className="text-bolt-elements-textSecondary dark:text-bolt-elements-textSecondary mt-2">
+                      # Netlify Authentication
+                    </div>
+                    <div className="text-bolt-elements-textPrimary dark:text-bolt-elements-textPrimary">
+                      VITE_NETLIFY_ACCESS_TOKEN=your_token_here
+                    </div>
+                  </>
+                )}
               </div>
               <div className="mt-3 text-xs text-bolt-elements-textSecondary dark:text-bolt-elements-textSecondary space-y-1">
                 <p>

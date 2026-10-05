@@ -1,6 +1,7 @@
 import { createHash, timingSafeEqual } from 'node:crypto';
 import { projectRoute } from './project-protocol.mjs';
 import { demoDataRoute } from './demo-data.mjs';
+import { appAuthRoute } from './app-auth.mjs';
 
 export const MODEL_LIST = [
   { name: 'qwen3-coder-next', label: '百炼 · Qwen3 Coder Next', provider: 'Bailian', maxTokenAllowed: 16000 },
@@ -108,7 +109,7 @@ export function apiAllowed(pathname) {
   // Remix matches routes case-insensitively by default. Unknown uppercase API
   // variants must not fall through as ordinary pages and bypass the allowlist.
   const lower = pathname.toLowerCase();
-  return !(lower === '/api' || lower.startsWith('/api/')) || API_PATHS.has(pathname) || !!projectRoute(pathname) || !!demoDataRoute(pathname);
+  return !(lower === '/api' || lower.startsWith('/api/')) || API_PATHS.has(pathname) || !!projectRoute(pathname) || !!demoDataRoute(pathname) || !!appAuthRoute(pathname);
 }
 
 export function safeModelRequest(body, path) {
@@ -155,6 +156,7 @@ export function safeModelRequest(body, path) {
   // Cloud connectors are deliberately unavailable in the private POC.
   delete body.supabase;
   delete body.managedDemoStorage; // Only the gateway may assert a provisioned capability.
+  delete body.managedAppAuth;
   return true;
 }
 

@@ -12,6 +12,7 @@ import { webcontainerBootStatus } from '~/lib/webcontainer/boot-status';
 import { chatId } from '~/lib/persistence/useChatHistory';
 import { currentAccount, accountStorage } from '~/lib/auth/account-context';
 import { attachDemoDataBridge } from '~/lib/runtime/demo-data/bridge';
+import { attachAppAuthBridge } from '~/lib/runtime/app-auth/bridge';
 
 type ResizeSide = 'left' | 'right' | null;
 
@@ -73,7 +74,7 @@ export const Preview = memo(() => {
       return undefined;
     }
 
-    return attachDemoDataBridge({
+    const detachData = attachDemoDataBridge({
       target: window,
       iframe: () => iframeRef.current,
       origin: new URL(iframeUrl).origin,
@@ -81,6 +82,18 @@ export const Preview = memo(() => {
       accountId: currentAccount.id,
       storage: accountStorage,
     });
+    const detachAuth = attachAppAuthBridge({
+      target: window,
+      iframe: () => iframeRef.current,
+      origin: new URL(iframeUrl).origin,
+      projectId,
+      accountId: currentAccount.id,
+    });
+
+    return () => {
+      detachData();
+      detachAuth();
+    };
   }, [iframeUrl, projectId]);
 
   const [isSelectionMode, setIsSelectionMode] = useState(false);
