@@ -15,13 +15,24 @@ export async function managedModelRequest(
     projectId?: string;
   },
 ) {
+  const target =
+    (phase === 'generate' || phase === 'repair') && payload.batch?.files.length === 1
+      ? payload.batch.files[0]
+      : undefined;
+  const editTarget =
+    target && payload.batch?.editOnlyPaths?.includes(target.path) && !payload.fullFilePaths?.includes(target.path);
   const content =
     `[Model: ${options.model}]\n\n[Provider: ${options.provider}]\n\n` +
     JSON.stringify({
       ...payload,
-      conversation: options.history
-        ?.slice(-8)
-        .map((message) => ({ role: message.role, content: String(message.content).slice(0, 3000) })),
+      task: target ? `只完成当前文件 ${target.path}：${target.instruction}` : payload.task,
+      projectGoal: target ? payload.task : undefined,
+      targetFile: target,
+      conversation: target
+        ? undefined
+        : options.history
+            ?.slice(-8)
+            .map((message) => ({ role: message.role, content: String(message.content).slice(0, 3000) })),
       files: Object.fromEntries(
         Object.entries(payload.files).filter(
           ([path]) => !/^(?:package-lock\.json|pnpm-lock\.yaml|yarn\.lock)$/.test(path),
@@ -29,26 +40,40 @@ export async function managedModelRequest(
       ),
 
       // Put the exact output scope after the large read-only source context.
-      outputContract: payload.batch
+      outputContract: target
         ? {
             instruction:
-              '只实现 files 中的逐文件指令，返回本批次指定路径的合法 JSON 改动；全局需求由全部批次合并完成。其他源码仅供参考，不能返回示例路径或已完成的其他批次文件。changed 时必须完整返回本批次所有文件；如果本批次全是已有文件且确实无需修改，可返回 unchanged 和空 files，并解释原因，这不代表整个任务已完成。新文件不可跳过。',
-            files: payload.batch.files,
+              '当前只实现 targetFile，其他文件仅供参考。路径由程序绑定，不返回 files 数组或 path。新文件不可跳过。',
+            targetPath: target.path,
             changedResponse: {
               status: 'changed',
-              summary: '本批次具体修改，不声称编译通过',
-              files: payload.batch.files.map(({ path }) =>
-                payload.batch!.editOnlyPaths?.includes(path) && !payload.fullFilePaths?.includes(path)
-                  ? { path, edits: [{ search: '当前文件中唯一匹配的原文', replace: '完整替换片段' }] }
-                  : { path, content: '此路径的完整文件内容，不含占位或省略' },
-              ),
+              summary: '仅说明本文件的修改，不声称已验证',
+              ...(editTarget
+                ? { edits: [{ search: '当前目标文件中唯一匹配的原文', replace: '完整替换片段' }] }
+                : { content: '目标文件的完整内容，不含省略' }),
             },
-            fullContentPaths: payload.fullFilePaths?.filter((path) =>
-              payload.batch!.files.some((file) => file.path === path),
-            ),
-            editOnlyPaths: payload.batch.editOnlyPaths,
+            unchangedResponse: { status: 'unchanged', summary: '仅当当前已有目标文件确实无需改动时说明原因' },
           }
-        : undefined,
+        : payload.batch
+          ? {
+              instruction:
+                '只实现 files 中的逐文件指令，返回本批次指定路径的合法 JSON 改动；全局需求由全部批次合并完成。其他源码仅供参考，不能返回示例路径或已完成的其他批次文件。changed 时必须完整返回本批次所有文件；如果本批次全是已有文件且确实无需修改，可返回 unchanged 和空 files，并解释原因，这不代表整个任务已完成。新文件不可跳过。',
+              files: payload.batch.files,
+              changedResponse: {
+                status: 'changed',
+                summary: '本批次具体修改，不声称编译通过',
+                files: payload.batch.files.map(({ path }) =>
+                  payload.batch!.editOnlyPaths?.includes(path) && !payload.fullFilePaths?.includes(path)
+                    ? { path, edits: [{ search: '当前文件中唯一匹配的原文', replace: '完整替换片段' }] }
+                    : { path, content: '此路径的完整文件内容，不含占位或省略' },
+                ),
+              },
+              fullContentPaths: payload.fullFilePaths?.filter((path) =>
+                payload.batch!.files.some((file) => file.path === path),
+              ),
+              editOnlyPaths: payload.batch.editOnlyPaths,
+            }
+          : undefined,
     });
 
   if (new TextEncoder().encode(content).byteLength > 650000) {
@@ -64,6 +89,7 @@ export async function managedModelRequest(
       managedPhase: phase,
       managedProjectId: options.projectId,
       managedBatchMode: payload.batch ? (payload.batch.recovery ? 'recovery' : 'file') : undefined,
+      managedSingleFile: target ? true : undefined,
       managedFileOutput: payload.batch
         ? payload.batch.files.every(
             ({ path }) => !payload.batch!.editOnlyPaths?.includes(path) || payload.fullFilePaths?.includes(path),

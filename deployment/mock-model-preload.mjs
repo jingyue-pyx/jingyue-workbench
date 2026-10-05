@@ -55,6 +55,8 @@ globalThis.fetch = async (input, options = {}) => {
       edits: system.includes('REQUIRED LARGE-FILE OUTPUT FORMAT'),
       contradictoryEditExample: system.includes('PREFER') || system.includes('"edits":'),
       guardsPresent: system.includes('Do not weaken type checks') && system.includes('Never include secrets'),
+      single: system.includes('SINGLE-FILE RESPONSE CONTRACT'),
+      filesExample: system.includes('"files":'),
     });
     const chunk = { id: 'fixture', object: 'chat.completion.chunk', created: 1, model: 'qwen3-coder-next', choices: [{ index: 0, delta: { role: 'assistant', content: '{}' }, finish_reason: 'stop' }] };
     return new Response(`data: ${JSON.stringify(chunk)}\n\ndata: [DONE]\n\n`, { headers: { 'Content-Type': 'text/event-stream' } });

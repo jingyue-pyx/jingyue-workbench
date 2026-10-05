@@ -1,5 +1,40 @@
 # 鲸月工作台：阿里云私有体验部署
 
+## Host-bound single-file protocol (2026-10-06; candidate)
+
+- The user deployed source `44a785d`; public health returned 200 and exact
+  release `4fd261ca4f4f372e9e021f8d9db863fd4b84a2963247ba739f42e1ab0fba3456`.
+  Anonymous project access remained 401; the dedicated QA login and third-version
+  project restore succeeded. The original unmodified two-file query still failed,
+  now with `batch_scope` during generation (run
+  `fa033cd0-a3dc-4810-8145-84bdfbbc8046`, `2026-10-05T18:25:03.046Z`). The browser
+  loaded the expected new `Header-DG1pdPDZ.js`. This is a confirmed failed public
+  regression, not a stale-page or deployment-success claim.
+- The old request carried the multi-file goal and stale conversational instructions
+  into each single-file batch, while asking the model to select paths again in a
+  files array. This creates an avoidable protocol ambiguity. The new candidate
+  supplies a scoped target instruction and read-only project context, omits stale
+  chat in code batches, and asks for one `{status,summary,content}` response (or
+  bounded `edits` for large files). The host binds that response to the selected
+  path. This addresses the ambiguity; the exact raw offending paths from the
+  failed cloud response were not captured and are not claimed here.
+- Explicitly wrong paths or extra response fields are rejected, not silently
+  renamed or dropped. Legacy files-array responses still traverse existing batch
+  scope validation. Path/config/size checks, candidate isolation, source revision
+  checks, total budget and compile/preview gates are unchanged. Only a complete
+  combined candidate can replace live source.
+- Regressions cover two native single-file replies, current source propagation to
+  the next batch, full-content and edit modes, unchanged handling, truncation,
+  malicious paths/extra fields and protected configs. Packaged checks also inspect
+  the actual synthetic upstream prompt for both new and compatibility modes.
+- Local candidate verification: 753 application tests, 132 deployment tests,
+  TypeScript and production build passed. Packaged/Linux checks are recorded in
+  the ignored release receipt. These are not a substitute for cloud acceptance.
+- The existing source/preview/public site are preserved. No fourth-version site
+  has been published. An allowed upload and original-query public retest are still
+  required before this candidate can be accepted; no FC configuration or permissions
+  were changed, and the prior browser-origin denial was not bypassed.
+
 ## Complete-file contract follow-up (2026-10-06; candidate, not deployed)
 
 - Public health verified release `9a6b1b172c3582c7ddd1e141ab3847f732329c553e3fa20c547ea34f5ef35db3`

@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import {
   ExactEditError,
+  bindSingleFileResponse,
   OutputLimitError,
   parsePatch,
   RunError,
@@ -202,7 +203,12 @@ export function createBatchedModel(
 
       try {
         const raw = await checkedAsk(phase, batchInput, signal);
-        const patch = parsePatch(raw, candidate, fullFilePaths, batchInput.batch?.editOnlyPaths);
+        const patch = parsePatch(
+          tasks.length === 1 ? bindSingleFileResponse(raw, tasks[0].path) : raw,
+          candidate,
+          fullFilePaths,
+          batchInput.batch?.editOnlyPaths,
+        );
         const allowed = new Set(tasks.map((task) => task.path));
 
         /*

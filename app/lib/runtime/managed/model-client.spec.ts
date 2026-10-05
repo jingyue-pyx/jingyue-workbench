@@ -26,13 +26,14 @@ describe('managed model request', () => {
 
     const request = JSON.parse((fetch.mock.calls[0] as unknown as [string, RequestInit])[1].body as string);
     expect(request.managedFileOutput).toBe(large ? 'edits' : 'content');
+    expect(request.managedSingleFile).toBe(true);
 
     const content = request.messages[0].content;
     const contract = JSON.parse(content.slice(content.indexOf('{'))).outputContract;
-    expect(contract.changedResponse.files).toHaveLength(1);
-    expect(contract.changedResponse.files[0].path).toBe('src/style.css');
-    expect(contract.changedResponse.files[0]).toHaveProperty(large ? 'edits' : 'content');
-    expect(contract.changedResponse.files[0]).not.toHaveProperty(large ? 'content' : 'edits');
+    expect(contract.targetPath).toBe('src/style.css');
+    expect(contract.changedResponse).toHaveProperty(large ? 'edits' : 'content');
+    expect(contract.changedResponse).not.toHaveProperty(large ? 'content' : 'edits');
+    expect(contract.changedResponse).not.toHaveProperty('files');
     expect(JSON.stringify(contract)).not.toContain('src/App.tsx');
     expect(contract.instruction).toContain('新文件不可跳过');
   });
@@ -55,10 +56,11 @@ describe('managed model request', () => {
     expect(body.managedFileOutput).toBe('content');
     expect(body.managedBatchMode).toBe('recovery');
 
-    const prompt = managedSystemPrompt('generate', false, false, false, body.managedFileOutput);
+    const prompt = managedSystemPrompt('generate', false, false, false, body.managedFileOutput, body.managedSingleFile);
     expect(prompt).toContain('REQUIRED COMPLETE-FILE OUTPUT');
+    expect(prompt).toContain('SINGLE-FILE RESPONSE CONTRACT');
     expect(prompt).not.toMatch(/PREFER|REQUIRED LARGE-FILE|use minimal exact edits|"edits":/);
-    expect(prompt).toContain('Do not output an edits field');
+    expect(prompt).not.toContain('"files":');
     expect(prompt).toContain('Do not weaken type checks');
     expect(prompt).toContain('Never include secrets');
     expect(managedSystemPrompt('generate', false, false, false, 'edits')).toContain('REQUIRED LARGE-FILE');
@@ -146,8 +148,39 @@ describe('managed model request', () => {
 
     const message = request.messages[0].content;
     const payload = JSON.parse(message.slice(message.indexOf('{')));
-    expect(payload.outputContract.files).toEqual([{ path: 'src/App.tsx', instruction: '修改入口' }]);
+    expect(payload.outputContract.targetPath).toBe('src/App.tsx');
+    expect(payload.targetFile.path).toBe('src/App.tsx');
     expect(message.lastIndexOf('outputContract')).toBeGreaterThan(message.indexOf('"files"'));
+  });
+  it('separates the single-file task from global instructions and omits stale chat in code batches', async () => {
+    const fetch = vi.fn(async () => new Response('0:"{}"\nd:{"finishReason":"stop"}\n'));
+    vi.stubGlobal('fetch', fetch);
+
+    const history = [{ id: 'old', role: 'user' as const, content: 'stale-history-canary' }];
+    await managedModelRequest(
+      'generate',
+      {
+        task: '两个文件都必须改动',
+        files: { 'src/App.tsx': 'current app', 'src/style.css': 'button{}' },
+        errors: [],
+        batch: {
+          id: 2,
+          recovery: false,
+          files: [{ path: 'src/style.css', instruction: '按钮改绿' }],
+          editOnlyPaths: [],
+        },
+      },
+      { provider: 'Bailian', model: 'fixture', signal: new AbortController().signal, history },
+    );
+
+    const request = JSON.parse((fetch.mock.calls[0] as unknown as [string, RequestInit])[1].body as string);
+    const message = request.messages[0].content;
+    const input = JSON.parse(message.slice(message.indexOf('{')));
+    expect(input.task).toBe('只完成当前文件 src/style.css：按钮改绿');
+    expect(input.projectGoal).toBe('两个文件都必须改动');
+    expect(input.files[input.targetFile.path]).toBe('button{}');
+    expect(input.files['src/App.tsx']).toBe('current app');
+    expect(message).not.toContain('stale-history-canary');
   });
   it('distinguishes manifest truncation from an invalid engineering plan', async () => {
     vi.stubGlobal(

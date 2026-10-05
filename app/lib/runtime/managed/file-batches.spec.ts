@@ -30,6 +30,25 @@ const signal = () => new AbortController().signal;
 const options = () => ({ guard: vi.fn(), retain: vi.fn().mockResolvedValue(undefined), diagnostic: vi.fn() });
 
 describe('bounded file scheduling', () => {
+  it('assembles two native single-file replies on host-selected paths before returning the combined change', async () => {
+    const before = { 'src/App.tsx': 'old app', 'src/style.css': 'button{color:blue}' };
+    const request = vi
+      .fn()
+      .mockResolvedValueOnce(manifest('src/App.tsx', 'src/style.css'))
+      .mockResolvedValueOnce(JSON.stringify({ status: 'changed', summary: '标题修改', content: 'new app' }))
+      .mockResolvedValueOnce(
+        JSON.stringify({ status: 'changed', summary: '颜色修改', content: 'button{color:green}' }),
+      );
+    const hooks = options();
+    const result = parsePatch(await createBatchedModel(request, hooks)('generate', input(before), signal()), before);
+    expect(result.files).toEqual([
+      { path: 'src/App.tsx', content: 'new app' },
+      { path: 'src/style.css', content: 'button{color:green}' },
+    ]);
+    expect(request.mock.calls[2][1].files['src/App.tsx']).toBe('new app');
+    expect(before['src/App.tsx']).toBe('old app');
+    expect(request).toHaveBeenCalledTimes(3);
+  });
   it('requires complete small files even with editor attributes, corrects ignored mode, then completes CSS', async () => {
     const before = {
       'src/App.tsx': 'export default function App(){return <h1 data-oid="jy-fixture">第三版</h1>}',

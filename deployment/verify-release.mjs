@@ -242,13 +242,16 @@ try {
   assert.ok(logs.includes('managed_model_intent_JINGYUE_MODEL_UNAVAILABLE'));
   assert.ok(!logs.includes('private-provider-canary'));
   checks += 5;
-  for (const mode of ['content', 'edits']) {
+  for (const { mode, single } of [
+    { mode: 'content', single: false }, { mode: 'edits', single: false },
+    { mode: 'content', single: true }, { mode: 'edits', single: true },
+  ]) {
     const modelCount = modelEvents.filter((event) => event.event === 'mock_model_call').length;
     const output = await fetch(origin + '/api/chat', {
       method: 'POST',
       headers: { authorization: auth, origin, 'content-type': 'application/json' },
       body: JSON.stringify({
-        managedPhase: 'generate', managedFileOutput: mode, managedBatchMode: 'file', contextOptimization: false,
+        managedPhase: 'generate', managedFileOutput: mode, managedSingleFile: single, managedBatchMode: 'file', contextOptimization: false,
         messages: [{ role: 'user', content: '[Model: qwen3-coder-next]\n\n[Provider: Bailian]\n\nfixture-file-output-contract' }],
       }),
     });
@@ -260,7 +263,22 @@ try {
     assert.equal(contract.complete, mode === 'content');
     assert.equal(contract.edits, mode === 'edits');
     assert.equal(contract.contradictoryEditExample, mode === 'edits');
-    checks += 7;
+    assert.equal(contract.single, single);
+    assert.equal(contract.filesExample, !single);
+    checks += 9;
+  }
+  for (const invalid of [
+    { managedPhase: 'generate', managedFileOutput: 'content', managedSingleFile: 'true' },
+    { managedPhase: 'intent', managedFileOutput: 'content', managedSingleFile: true },
+    { managedPhase: 'generate', managedSingleFile: true },
+  ]) {
+    const response = await fetch(origin + '/api/chat', {
+      method: 'POST', headers: { authorization: auth, origin, 'content-type': 'application/json' },
+      body: JSON.stringify({ ...invalid, messages: [{ role: 'user', content: '[Model: qwen3-coder-next]\n\n[Provider: Bailian]\n\nfixture' }] }),
+    });
+    assert.equal(response.status, 400);
+    await response.arrayBuffer();
+    checks++;
   }
   const invalidMode = await fetch(origin + '/api/chat', {
     method: 'POST', headers: { authorization: auth, origin, 'content-type': 'application/json' },
