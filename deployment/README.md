@@ -417,6 +417,31 @@ preview remained usable. Regression reproduced a distinct identical-file batch
 bug and its correction; follow-up browser acceptance is recorded below rather
 than inferred from test passes.
 
+Final local follow-up acceptance (source `9f8b595`, real Bailian model): the same
+supply-chain change completed after bounded automatic repair, updating six files.
+Date and remarks were submitted and shown in order details (2026/10/12 and the
+test note), quantity/price arithmetic and search worked, and combined approved
+status + Shenzhen supplier filtering selected the correct single order. The
+browser's synthetic `fill()` alone did not commit a date to React state; normal
+keyboard date changes did, so the date assertion uses that real UI interaction.
+After a whole-page refresh, history, modified source, date/remarks controls and
+preview recovered without a model call. In-memory test orders reset as specified.
+The duplicate filters were removed, although the retained set is above the form
+rather than immediately above the list; this is a remaining generated-layout
+detail, not an unimplemented filter or failed compilation. These two examples
+are useful coverage, not a guarantee that arbitrary generated applications work.
+
+Final code artifact: `deployment/releases/jingyue-private-fLXPAI.zip`, source
+`9f8b5952b43701878d7dd4d3b3211ed5b4651e64`, clean source at packaging.
+ZIP SHA-256: `4ae7666be5bed26ddd4f3713034da77994c85913237d7e9463581a3bfcc35486`.
+Release ID: `b7b1715342a6e66fc9760d961dbcf8b2c54447295a83c987e31d86f598dd34fc`.
+Its credential scan and all 76 packaged checks passed on both macOS and Linux /
+Node 22.23.3, with no real model or database calls in the packaged smoke test.
+The final code's Linux / Node 22 CI also passed:
+https://github.com/jingyue-pyx/jingyue-workbench/actions/runs/37271892411 .
+This final acceptance note is documentation-only and postdates that artifact;
+it does not change the artifact's source identity or claim it was uploaded.
+
 Linux / Node 22 GitHub CI passed for source checkpoint `7e713d9`:
 https://github.com/jingyue-pyx/jingyue-workbench/actions/runs/37270220307 .
 Its candidate archive `jingyue-private-o9v2zH.zip` passed the credential scan and
