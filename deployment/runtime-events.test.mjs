@@ -1,6 +1,13 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { runtimeEventName } from './runtime-events.mjs';
+test('accepts only finite final batch subtypes with no raw source fields', () => {
+  for (const reason of ['patch_format', 'patch_mismatch', 'batch_scope', 'batch_missing']) {
+    const event = { outcome: 'failed', stage: 'generating', reason, attempt: 0 };
+    assert.equal(runtimeEventName(event), `client_runtime_failed_generating_${reason}_repair_0`);
+    assert.equal(runtimeEventName({ ...event, source: 'private-canary' }), null);
+  }
+});
 test('records unsupported capabilities without leaking the model plan', () => {
   const data = { outcome: 'failed', stage: 'planning', reason: 'capability', attempt: 0 };
   assert.equal(runtimeEventName(data), 'client_runtime_failed_planning_capability_repair_0');

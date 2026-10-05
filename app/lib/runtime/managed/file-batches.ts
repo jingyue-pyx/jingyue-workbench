@@ -13,6 +13,7 @@ import {
 } from './protocol';
 import { assertSameSources, sourceRevision, sourceSnapshot } from './source-revision';
 import { managedOutputTokens, MANAGED_TASK_BUDGET } from './request-policy';
+import type { BatchFailureCode } from './batch-failure';
 
 const manifestSchema = z
   .object({
@@ -56,7 +57,7 @@ export function parseFileManifest(text: string) {
 }
 
 type Request = (phase: ManagedPhase, input: ManagedModelInput, signal: AbortSignal) => Promise<string>;
-export type BatchDiagnostic = 'output_limit' | 'patch_mismatch' | 'patch_format' | 'batch_scope' | 'manifest';
+export type BatchDiagnostic = 'output_limit' | 'manifest' | BatchFailureCode;
 
 /** One instance per user task. Every request still traverses the authenticated quota gateway. */
 export function createBatchedModel(
@@ -218,7 +219,7 @@ export function createBatchedModel(
           throw new RunError(
             `文件批次缺少清单要求的文件；请完整返回：${JSON.stringify([...allowed])}。`,
             true,
-            'format',
+            'batch-missing',
           );
         }
 
@@ -268,7 +269,7 @@ export function createBatchedModel(
           error instanceof OutputLimitError ||
           (error instanceof RunError &&
             error.repairable &&
-            ['format', 'batch-scope', 'no-change'].includes(error.category));
+            ['format', 'batch-scope', 'batch-missing', 'no-change'].includes(error.category));
 
         if (!correctable) {
           throw error;
@@ -281,7 +282,9 @@ export function createBatchedModel(
               ? 'patch_mismatch'
               : error.category === 'batch-scope'
                 ? 'batch_scope'
-                : 'patch_format';
+                : error.category === 'batch-missing'
+                  ? 'batch_missing'
+                  : 'patch_format';
         options.diagnostic?.(batchInput, code);
 
         if (tasks.length > 1) {
@@ -310,7 +313,11 @@ export function createBatchedModel(
           throw error;
         }
 
-        throw new RunError('文件批次校验仍未通过，已完成候选批次保留，当前源码未替换。', false, 'batch-format');
+        throw new RunError(
+          `文件批次校验仍未通过（${code}），有限纠正已结束；已完成候选批次保留，当前源码未替换。`,
+          false,
+          'batch-format',
+        );
       }
     };
 

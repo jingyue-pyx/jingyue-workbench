@@ -31,8 +31,18 @@ export async function managedModelRequest(
       // Put the exact output scope after the large read-only source context.
       outputContract: payload.batch
         ? {
-            instruction: '只输出本批次指定文件的合法 JSON 改动。其他源码仅供参考；不能返回示例路径或其他批次文件。',
+            instruction:
+              '只实现 files 中的逐文件指令，返回本批次指定路径的合法 JSON 改动；全局需求由全部批次合并完成。其他源码仅供参考，不能返回示例路径或已完成的其他批次文件。changed 时必须完整返回本批次所有文件；如果本批次全是已有文件且确实无需修改，可返回 unchanged 和空 files，并解释原因，这不代表整个任务已完成。新文件不可跳过。',
             files: payload.batch.files,
+            changedResponse: {
+              status: 'changed',
+              summary: '本批次具体修改，不声称编译通过',
+              files: payload.batch.files.map(({ path }) =>
+                payload.batch!.editOnlyPaths?.includes(path) && !payload.fullFilePaths?.includes(path)
+                  ? { path, edits: [{ search: '当前文件中唯一匹配的原文', replace: '完整替换片段' }] }
+                  : { path, content: '此路径的完整文件内容，不含占位或省略' },
+              ),
+            },
             fullContentPaths: payload.fullFilePaths?.filter((path) =>
               payload.batch!.files.some((file) => file.path === path),
             ),

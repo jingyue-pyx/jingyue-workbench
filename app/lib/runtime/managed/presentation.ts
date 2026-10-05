@@ -3,6 +3,7 @@ import { PREPARATION_FAILURE_MESSAGE } from './failure-notice';
 import type { BatchDiagnostic } from './file-batches';
 import type { ManagedModelInput } from './protocol';
 import { managedTrace } from './request-policy';
+import { batchFailureCode, BATCH_FAILURE_REASONS } from './batch-failure';
 
 /*
  * Compiler/package logs can contain HTTP 429, line numbers or timings. None of
@@ -45,6 +46,12 @@ export function runMessage(
     }
 
     if (/文件批次校验仍未通过|文件清单格式校验失败/.test(state.detail || '')) {
+      const code = batchFailureCode(state.detail || '');
+
+      if (code) {
+        return `本轮改码未完成：${BATCH_FAILURE_REASONS[code]}。有限纠正仍未通过，当前源码和预览未替换。可以基于当前代码继续修复；这不是编译或预览连接失败。`;
+      }
+
       return '文件清单或改动批次未通过校验，有限重试仍未成功。本轮候选未覆盖现有源码，可以继续描述需要修改的具体功能。';
     }
 
@@ -192,7 +199,7 @@ export function runtimeEvent(state: RunState) {
     stage:
       state.events.filter((event) => !['failed', 'cancelled', 'succeeded', 'unchanged'].includes(event.phase)).at(-1)
         ?.phase || 'idle',
-    reason,
+    reason: state.phase === 'failed' ? batchFailureCode(text) || reason : reason,
     attempt: state.attempt,
   };
 }

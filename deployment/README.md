@@ -1,5 +1,51 @@
 # 鲸月工作台：阿里云私有体验部署
 
+## Two-file cloud acceptance follow-up (2026-10-05; candidate pending upload)
+
+- Real public acceptance used the dedicated QA project
+  `362b23e9-b156-46fc-976e-5b224ab84b52`. A request to update `src/App.tsx`
+  and `src/style.css` failed with the old generic batch-validation notice.
+  A subsequent single-file request completed compilation/preview, save and
+  whole-workbench restoration. Saved revision 39 was published to the existing
+  `jy-a6e266ef751893b769efcc46.netlify.app` site. Step input, increment,
+  invalid-value disabling and reset worked on the public page; anonymous HTTP
+  returned 200. These results validate the small scoped path, not the failed
+  two-file request or this new candidate. No site or paid resource was added.
+- The page still loaded `Header-DRgLLWJH.js`, matching the retained
+  `jingyue-private-rJyrBw` artifact. Its scheduler grouped small existing files
+  and could reject an unchanged full-file response before reaching the actual
+  changed file. An isolated replay of that deployed logic reproduced the same
+  generic failure in four calls: a CSS/App batch, followed by two identical-CSS
+  attempts. The candidate's single-file scheduler skips unchanged CSS and
+  reaches the App change in three calls. Both CSS-first and App-first ordering
+  now have regression coverage. The actual failed cloud response was not
+  retained in accessible logs: this proves a matching implementation defect,
+  not which exact subtype occurred in that historical request.
+- The new package includes the previously unshipped single-file scheduling,
+  identical-file skipping and exact-scope corrections. This follow-up makes the
+  response example use each actual batch path instead of encouraging an App
+  response during a CSS batch, and explains that a batch-local no-op does not
+  mean the whole task is complete. New files still cannot be skipped; all
+  candidates must pass aggregate checks and compile before replacing live code.
+- Exhausted validation now retains a finite reason in the visible result,
+  saved conversation outcome and authenticated runtime event: invalid patch
+  format, exact-edit mismatch, out-of-batch path or missing required file.
+  Raw model replies, source, paths and credentials are not added to logs.
+  Historical generic notices stay unknown; no cause is fabricated for them.
+- Verification: 89 targeted application checks, all 722 application tests,
+  131 deployment tests and type checking passed. The first full run used Node
+  25's experimental global storage and failed the existing DOM tests; the
+  documented `NODE_OPTIONS=--no-experimental-webstorage` rerun passed with no
+  removed assertions. One new test fixture's incomplete TypeScript shape was
+  corrected. Production build and final package checks are separate release
+  gates; consult the final artifact receipt for their outcome.
+- Upload is a code-only update of the existing FC function: preserve current
+  environment variables, credentials, database permissions and resource sizes.
+  The earlier denied cloud-console path must not be bypassed. After an approved
+  upload, verify the release digest, rerun the original two-file query, then
+  repeat save/refresh and update the same Netlify QA site. Do not label the
+  candidate deployed before these gates complete.
+
 > 当前状态（2026-10-05）：用户 Netlify 授权与静态网站公网发布已启用，首次发布及同站点更新已实测。下方按日期保留了曾经禁用的历史状态；以文末最新记录为准。OpenCode 不在公网启用，生成应用预览专用认证/存储不随静态网站发布。
 
 这是 **当前鲸月 / Onlook / 百炼工作台** 的独立部署入口，不是旧 `atoms-demo` 制品，也不是公开多租户生产系统。现有受限内测已部署至香港 FC，域名、HTTPS 和项目持久化已接通；2026-09-28 已切换独立账号注册登录，当前账号模式配置以 [ACCOUNTS.md](ACCOUNTS.md) 为准。下方 Basic 配置保留用于理解旧入口，不能当作当前多用户部署方案。验收范围及未完成项见根目录 [JINGYUE.md](../JINGYUE.md)。

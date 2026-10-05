@@ -5,6 +5,35 @@ import { parsePlan } from './protocol';
 afterEach(() => vi.unstubAllGlobals());
 
 describe('managed model request', () => {
+  it.each([false, true])('scopes response examples to the actual CSS batch (exact edits: %s)', async (large) => {
+    const fetch = vi.fn(async () => new Response('0:"{}"\nd:{"finishReason":"stop"}\n'));
+    vi.stubGlobal('fetch', fetch);
+    await managedModelRequest(
+      'generate',
+      {
+        task: '同时修改 App 和 CSS',
+        files: { 'src/style.css': 'button{}', 'src/App.tsx': 'old app' },
+        errors: [],
+        batch: {
+          id: 2,
+          files: [{ path: 'src/style.css', instruction: '补充样式' }],
+          recovery: false,
+          editOnlyPaths: large ? ['src/style.css'] : [],
+        },
+      },
+      { provider: 'Bailian', model: 'fixture', signal: new AbortController().signal },
+    );
+
+    const request = JSON.parse((fetch.mock.calls[0] as unknown as [string, RequestInit])[1].body as string);
+    const content = request.messages[0].content;
+    const contract = JSON.parse(content.slice(content.indexOf('{'))).outputContract;
+    expect(contract.changedResponse.files).toHaveLength(1);
+    expect(contract.changedResponse.files[0].path).toBe('src/style.css');
+    expect(contract.changedResponse.files[0]).toHaveProperty(large ? 'edits' : 'content');
+    expect(contract.changedResponse.files[0]).not.toHaveProperty(large ? 'content' : 'edits');
+    expect(JSON.stringify(contract)).not.toContain('src/App.tsx');
+    expect(contract.instruction).toContain('新文件不可跳过');
+  });
   it.each([
     ['JINGYUE_MODEL_NETWORK', 'network', '连接中断'],
     ['JINGYUE_MODEL_LIMIT', 'quota', '额度'],

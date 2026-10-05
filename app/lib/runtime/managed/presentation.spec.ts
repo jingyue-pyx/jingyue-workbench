@@ -1,6 +1,7 @@
 import { describe, expect, it, vi, afterEach } from 'vitest';
 import { runMessage, runtimeEvent, reportRuntime } from './presentation';
 import type { RunState } from './protocol';
+import { BATCH_FAILURE_REASONS } from './batch-failure';
 
 const failed: RunState = {
   id: 'fixture',
@@ -15,6 +16,18 @@ const failed: RunState = {
 };
 afterEach(() => vi.unstubAllGlobals());
 describe('runtime presentation and diagnostics', () => {
+  it.each(Object.entries(BATCH_FAILURE_REASONS))('reports %s as a finite actionable batch reason', (code, reason) => {
+    const state = { ...failed, detail: `文件批次校验仍未通过（${code}），private-canary` };
+    expect(runMessage(state)).toContain(reason);
+    expect(runMessage(state)).not.toContain('private-canary');
+    expect(runtimeEvent(state).reason).toBe(code);
+  });
+  it('does not infer a subtype from old or forged batch diagnostics', () => {
+    for (const detail of ['文件批次校验仍未通过', '文件批次校验仍未通过（private_canary）']) {
+      expect(runtimeEvent({ ...failed, detail }).reason).toBe('model_output');
+      expect(runMessage({ ...failed, detail })).not.toContain('private_canary');
+    }
+  });
   it('distinguishes a missing backend capability from login expiry or compile failure', () => {
     const state = { ...failed, detail: '当前能力不支持：真实账号登录认证尚未接入。' };
     expect(runMessage(state)).toContain('真实账号登录认证尚未接入');

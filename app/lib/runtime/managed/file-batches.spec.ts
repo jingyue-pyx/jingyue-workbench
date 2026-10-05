@@ -4,6 +4,8 @@ import { OutputLimitError, RunError, parsePatch, type ManagedModelInput, type So
 import { ManagedRunController, type RunAdapter } from './controller';
 import { STYLED_REACT_VITE_TEMPLATE } from './template';
 import { managedOutputTokens, managedTrace, MANAGED_TASK_BUDGET } from './request-policy';
+import { runMessage, runtimeEvent } from './presentation';
+import { parseOutcomeAnnotation } from './outcome';
 
 const manifest = (...paths: string[]) =>
   JSON.stringify({
@@ -28,6 +30,81 @@ const signal = () => new AbortController().signal;
 const options = () => ({ guard: vi.fn(), retain: vi.fn().mockResolvedValue(undefined), diagnostic: vi.fn() });
 
 describe('bounded file scheduling', () => {
+  it.each(['css-first', 'app-first'])(
+    'keeps the cloud two-file task progressing when the model returns identical CSS (%s)',
+    async (order) => {
+      const before = { 'src/style.css': 'button{color:blue}', 'src/App.tsx': 'export const step = 2;' };
+      const paths = order === 'css-first' ? ['src/style.css', 'src/App.tsx'] : ['src/App.tsx', 'src/style.css'];
+      const request = vi.fn(async (phase, payload) => {
+        if (phase === 'manifest') {
+          return manifest(...paths);
+        }
+
+        const path = payload.batch.files[0].path;
+
+        return patch({ [path]: path.endsWith('.css') ? before['src/style.css'] : 'export const step = 3;' });
+      });
+      const hooks = options();
+      const result = parsePatch(
+        await createBatchedModel(request, { ...hooks, capture: () => before })('generate', input(before), signal()),
+        before,
+      );
+      expect(result.files).toEqual([{ path: 'src/App.tsx', content: 'export const step = 3;' }]);
+      expect(
+        request.mock.calls
+          .slice(1)
+          .map(([, payload]) => payload.batch.files.map((file: { path: string }) => file.path)),
+      ).toEqual(paths.map((path) => [path]));
+      expect(request).toHaveBeenCalledTimes(3);
+      expect(hooks.diagnostic).not.toHaveBeenCalled();
+      expect(hooks.retain).toHaveBeenCalledOnce();
+      expect(before['src/App.tsx']).toBe('export const step = 2;');
+    },
+  );
+  it.each([
+    ['patch_format', '{'],
+    ['batch_scope', patch({ 'src/private-canary.tsx': 'private-canary' })],
+    ['batch_missing', JSON.stringify({ status: 'unchanged', summary: 'private-canary', files: [] })],
+    [
+      'patch_mismatch',
+      JSON.stringify({
+        summary: 'private-canary',
+        files: [{ path: 'src/new.tsx', edits: [{ search: 'missing', replace: 'private-canary' }] }],
+      }),
+    ],
+  ])('retains safe final diagnostic %s in the saved outcome without raw model output', async (code, bad) => {
+    const request = vi.fn().mockResolvedValueOnce(manifest('src/new.tsx')).mockResolvedValue(bad);
+    const hooks = options();
+    let failure: unknown;
+
+    try {
+      await createBatchedModel(request, hooks)('generate', input(), signal());
+    } catch (error) {
+      failure = error;
+    }
+    expect(failure).toMatchObject({ category: 'batch-format', repairable: false });
+
+    const state = {
+      id: 'fixture',
+      phase: 'failed' as const,
+      detail: (failure as Error).message,
+      attempt: 0,
+      maxRepairs: 2,
+      changed: [],
+      startedAt: 1,
+      events: [{ phase: 'generating' as const, detail: '', at: 1 }],
+      errors: [],
+    };
+    const message = runMessage(state);
+    expect(message).not.toMatch(/private-canary|预览已就绪/);
+    expect(message).toContain('当前源码和预览未替换');
+
+    const event = runtimeEvent(state);
+    expect(event.reason).toBe(code);
+    expect(parseOutcomeAnnotation(`managed-outcome:failed:generating:${event.reason}:0`)?.reasonCode).toBe(code);
+    expect(hooks.retain).not.toHaveBeenCalled();
+    expect(request).toHaveBeenCalledTimes(3);
+  });
   it('allows a full 16-file manifest within the increased finite task budget', async () => {
     const paths = Array.from({ length: 16 }, (_, index) => `src/module${index}.ts`);
 

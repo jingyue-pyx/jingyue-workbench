@@ -40,6 +40,7 @@ export function runtimeEventName(data) {
       'patch_mismatch',
       'patch_format',
       'batch_scope',
+      'batch_missing',
       'manifest',
       'model_no_change',
       'model_service',
