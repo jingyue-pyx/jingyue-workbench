@@ -1,6 +1,40 @@
 # 鲸月工作台：阿里云私有体验部署
 
-## Host-bound single-file protocol (2026-10-06; candidate)
+## Public two-file regression and Netlify update passed (2026-10-06)
+
+- The user uploaded source `43822cacd4e3a17da0c42d854a23b3ac4e6521bf`.
+  Public health returned 200 and exact release
+  `07f1647a2b820f18e98e0ad1261fcbb2c832b57395967c41f850b3635f7201da`;
+  anonymous project access remained 401. CI run `37356846609` succeeded.
+- On dedicated QA project `362b23e9-b156-46fc-976e-5b224ab84b52`, the original
+  two-file request was replayed unchanged, without adding response-format hints.
+  Both `src/App.tsx` and `src/style.css` changed: the fourth-version title and
+  `step-control` class, input spacing/border/radius/padding, and dark-green
+  buttons appeared in source and the compiled preview. This run did not reproduce
+  `batch_scope` or `patch_mismatch`.
+- Real preview checks passed: step 4 twice produces 8; reset clears count while
+  preserving step 4; 11, 0, 1.5 and empty input show validation and disable
+  increment. Whole-workbench reload restored the fourth-version source and
+  preview without a new model request; increment still worked after recovery.
+- Saved revision 83 was published to the existing Netlify QA site, not a new
+  resource: https://jy-a6e266ef751893b769efcc46.netlify.app/ . The publish dialog
+  reported public verification for revision 83. Reloading the independent URL
+  showed the fourth-version title. Increment, reset, and invalid-step checks
+  passed there too. Computed CSS confirmed button `rgb(6, 78, 59)` and input
+  `1px` border, `6px` radius and `6px 8px` padding.
+- Scope caveat: model changes targeted the two requested application files.
+  The platform also refreshed its canonical `src/lib/jingyue-auth.ts` helper
+  during candidate assembly and regenerated runtime/build artifacts. Therefore
+  this is not a byte-for-byte guarantee that every other project file stayed
+  unchanged. The helper refresh is explicit in managed controller assembly, not
+  a silently accepted out-of-scope model response.
+- This passes the specific static-app cloud edit/build/restore/publish regression;
+  it is not a claim that arbitrary complex projects, standalone application auth,
+  or all intermittent provider failures have been stress-tested. Previous failed
+  runs below remain historical evidence. No FC configuration, account, permission,
+  paid resource, or browser-origin access restriction was changed or bypassed.
+
+## Host-bound single-file protocol (2026-10-06; implementation history)
 
 - The user deployed source `44a785d`; public health returned 200 and exact
   release `4fd261ca4f4f372e9e021f8d9db863fd4b84a2963247ba739f42e1ab0fba3456`.
@@ -30,10 +64,11 @@
 - Local candidate verification: 753 application tests, 132 deployment tests,
   TypeScript and production build passed. Packaged/Linux checks are recorded in
   the ignored release receipt. These are not a substitute for cloud acceptance.
-- The existing source/preview/public site are preserved. No fourth-version site
-  has been published. An allowed upload and original-query public retest are still
-  required before this candidate can be accepted; no FC configuration or permissions
-  were changed, and the prior browser-origin denial was not bypassed.
+- At candidate preparation time, the existing source/preview/public site were
+  preserved and fourth-version publication was pending. The subsequent allowed
+  upload and successful original-query public retest are recorded above. No FC
+  configuration or permissions were changed, and the prior browser-origin denial
+  was not bypassed.
 
 ## Complete-file contract follow-up (2026-10-06; candidate, not deployed)
 
