@@ -491,6 +491,29 @@ feature). No assertions were removed. Packaged Linux/Node 22 evidence is recorde
 in the release receipt after verification; it does not turn that real-model
 failure into a passing end-to-end run.
 
+Candidate receipt (07:05 UTC; **not uploaded to FC**):
+
+- Source: `1af20d3918470665df1d7c7be12c36f94e117712`, clean at packaging,
+  pushed to `codex/opencode-serve-poc`.
+- Archive: `deployment/releases/jingyue-private-7YHzqU.zip` (local ignored artifact).
+  SHA-256: `e4c3b6b86c8026a5cdd14094ebe45cedee74450de7dc5b68378562536ced43ac`.
+- Release ID: `bb12c85d1111dab7ea1715d6b4de8c1c6c5303e82c4f1cdad7430219238a97fc`.
+- Credential scan passed; 386 allowlisted files, 25,064,385 uncompressed bytes.
+  No local environment files, tokens or native dependencies included.
+- Packaged checks: **84 / 84** on macOS Node 25.8.0 and **84 / 84** on
+  offline, read-only Linux Node 22.23.3; zero real model/database calls.
+  The new synthetic provider-failure check confirms exactly one upstream call,
+  safe error mapping/logs and no raw provider-body disclosure.
+- [Linux Node 22 CI](https://github.com/jingyue-pyx/jingyue-workbench/actions/runs/37275627379)
+  passed build, typecheck and all application/deployment tests for that commit.
+- An additional credential-free empty POST to the official Bailian endpoint
+  timed out after 10 seconds on this machine. This corroborates a transport
+  availability problem but does not establish whether local routing, proxy,
+  upstream connectivity or the provider is responsible; do not claim it fixed.
+- Browser evidence: `jingyue-six-round-local-evidence-20261005.jpg` at workspace
+  root (not committed). The updated diagnostic is visible and the prior preview
+  is retained; the requested clear-search modification did **not** complete.
+
 Production baseline at 06:33 UTC: GET health returned `{"status":"ok"}` but no
 `X-Jingyue-Release`, so it is not the traceable candidate. Existing published test
 site `https://jy-a6e266ef751893b769efcc46.netlify.app/` still rendered its second
