@@ -30,6 +30,40 @@ const signal = () => new AbortController().signal;
 const options = () => ({ guard: vi.fn(), retain: vi.fn().mockResolvedValue(undefined), diagnostic: vi.fn() });
 
 describe('bounded file scheduling', () => {
+  it('requires complete small files even with editor attributes, corrects ignored mode, then completes CSS', async () => {
+    const before = {
+      'src/App.tsx': 'export default function App(){return <h1 data-oid="jy-fixture">第三版</h1>}',
+      'src/style.css': 'button{color:blue}',
+    };
+    const request = vi
+      .fn()
+      .mockResolvedValueOnce(manifest('src/App.tsx', 'src/style.css'))
+      .mockResolvedValueOnce(
+        JSON.stringify({
+          status: 'changed',
+          summary: 'edit',
+          files: [{ path: 'src/App.tsx', edits: [{ search: '<h1>第三版</h1>', replace: '<h1>第四版</h1>' }] }],
+        }),
+      )
+      .mockResolvedValueOnce(patch({ 'src/App.tsx': before['src/App.tsx'].replace('第三版', '第四版') }))
+      .mockResolvedValueOnce(patch({ 'src/style.css': 'button{color:green}' }));
+    const result = parsePatch(
+      await createBatchedModel(request, options())('generate', input(before), signal()),
+      before,
+    );
+    expect(result.files).toHaveLength(2);
+
+    for (const call of request.mock.calls.slice(1)) {
+      const payload = call[1];
+      expect(payload.batch.editOnlyPaths).toEqual([]);
+      expect(payload.fullFilePaths).toContain(payload.batch.files[0].path);
+    }
+    expect(request.mock.calls[2][1].errors.join(' ')).toContain('不接受 edits');
+    expect(result.files[0].content).toContain('data-oid="jy-fixture"');
+    expect(result.files[0].content).toContain('第四版');
+    expect(before['src/App.tsx']).toContain('第三版');
+    expect(request).toHaveBeenCalledTimes(4);
+  });
   it.each([
     [{ path: 'src/App.tsx' }],
     [{ path: 'src/App.tsx', content: null }],
@@ -98,12 +132,13 @@ describe('bounded file scheduling', () => {
       }),
     ],
   ])('retains safe final diagnostic %s in the saved outcome without raw model output', async (code, bad) => {
+    const before: SourceFiles = code === 'patch_mismatch' ? { 'src/new.tsx': 'x'.repeat(7000) } : {};
     const request = vi.fn().mockResolvedValueOnce(manifest('src/new.tsx')).mockResolvedValue(bad);
     const hooks = options();
     let failure: unknown;
 
     try {
-      await createBatchedModel(request, hooks)('generate', input(), signal());
+      await createBatchedModel(request, hooks)('generate', input(before), signal());
     } catch (error) {
       failure = error;
     }
@@ -125,8 +160,9 @@ describe('bounded file scheduling', () => {
     expect(message).toContain('当前源码和预览未替换');
 
     const event = runtimeEvent(state);
-    expect(event.reason).toBe(code);
-    expect(parseOutcomeAnnotation(`managed-outcome:failed:generating:${event.reason}:0`)?.reasonCode).toBe(code);
+    const finalCode = code === 'patch_mismatch' ? 'patch_format' : code;
+    expect(event.reason).toBe(finalCode);
+    expect(parseOutcomeAnnotation(`managed-outcome:failed:generating:${event.reason}:0`)?.reasonCode).toBe(finalCode);
     expect(hooks.retain).not.toHaveBeenCalled();
     expect(request).toHaveBeenCalledTimes(3);
   });

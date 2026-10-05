@@ -52,6 +52,7 @@ async function chatAction({ context, request }: ActionFunctionArgs) {
     managedDemoStorage,
     managedAppAuth,
     managedBatchMode,
+    managedFileOutput,
     managedTrace,
   } = await request.json<{
     messages: Messages;
@@ -63,6 +64,7 @@ async function chatAction({ context, request }: ActionFunctionArgs) {
     managedDemoStorage?: boolean;
     managedAppAuth?: boolean;
     managedBatchMode?: unknown;
+    managedFileOutput?: unknown;
     managedTrace?: unknown;
     supabase?: {
       isConnected: boolean;
@@ -84,6 +86,7 @@ async function chatAction({ context, request }: ActionFunctionArgs) {
     if (
       !['intent', 'answer', 'plan', 'manifest', 'generate', 'repair'].includes(managedPhase) ||
       !Array.isArray(messages) ||
+      (managedFileOutput !== undefined && managedFileOutput !== 'content' && managedFileOutput !== 'edits') ||
       messages.length !== 1
     ) {
       return new Response('Invalid managed request', { status: 400 });
@@ -107,6 +110,7 @@ async function chatAction({ context, request }: ActionFunctionArgs) {
                 managedPlanFinalization === true,
                 managedDemoStorage === true,
                 managedAppAuth === true,
+                managedFileOutput === 'content' ? 'content' : managedFileOutput === 'edits' ? 'edits' : undefined,
               ),
         abortSignal: request.signal,
         maxTokens: managedOutputTokens(managedPhase, managedBatchMode),

@@ -1,5 +1,43 @@
 # 鲸月工作台：阿里云私有体验部署
 
+## Complete-file contract follow-up (2026-10-06; candidate, not deployed)
+
+- Public health verified release `9a6b1b172c3582c7ddd1e141ab3847f732329c553e3fa20c547ea34f5ef35db3`
+  (source `1cae73b`). The existing dedicated QA account was reused successfully;
+  credentials remain in a user-only local file outside this repository. No
+  additional account, permission, paid resource or configuration was created.
+- On QA project `362b23e9-b156-46fc-976e-5b224ab84b52`, the original two-file
+  request failed during generation. The new finite diagnostic recorded
+  `patch_mismatch`, run `8cde78ec-2632-4421-9530-dd777ff63c73`, at
+  `2026-10-05T17:56:06.797Z`. This proves a patch-matching failure for this run,
+  not the cause of the earlier `other` failure. Third-version source and preview
+  remained intact; no fourth-version candidate was published.
+- The protocol still suggested exact edits for small existing files and
+  contained contradictory fallback guidance. This candidate requires full
+  content for files under 6,000 characters from the first attempt. Larger
+  files keep bounded exact edits; after a mismatch, their complete-file recovery
+  cannot return to edits. The per-batch response contract now also selects a
+  matching server prompt, without irrelevant edits examples in full-content
+  mode. Invalid mode values are rejected; source/path/config guards and the
+  existing call/token budgets are unchanged.
+- Regression coverage includes editor-added JSX attributes, a model ignoring
+  the requested format, bounded correction, and an actual second CSS change.
+  Packaged-server checks additionally inspect the synthetic provider request
+  to verify both mode prompts and safety rules, without logging prompt/source
+  text or using real credentials, models or databases.
+- A public control request explicitly asking for complete files did **not**
+  pass: the response ended incompletely during conversation routing, before a
+  new code task. This is separate from patch matching and remains an open cloud
+  acceptance item. Do not report the control request or this candidate as a
+  successful two-file public regression.
+- 739 application tests, 132 deployment tests and TypeScript checking passed.
+  Build/package checks are recorded separately in the ignored release receipt.
+  The candidate still needs an allowed code upload and a repeat of the original
+  normal-language query, compile/preview/save/restore and public site update.
+  FC browser access remains blocked by auto-review; no alternate access path
+  has been used. Environment variables, accounts and cloud permissions remain
+  unchanged.
+
 ## Unclassified cloud generation failure (2026-10-06; follow-up candidate)
 
 - The user uploaded release `2811aa5cad45a202349b85b9bbf9cc2c6c830fe0c47e37ce13369268514e9017`

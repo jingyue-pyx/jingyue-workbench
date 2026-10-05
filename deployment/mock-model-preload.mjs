@@ -46,6 +46,19 @@ globalThis.fetch = async (input, options = {}) => {
   if (typeof options.body === 'string' && options.body.includes('fixture-provider-unavailable')) {
     return Response.json({ error: { message: 'private-provider-canary' } }, { status: 503 });
   }
+  if (typeof options.body === 'string' && options.body.includes('fixture-file-output-contract')) {
+    const body = JSON.parse(options.body);
+    const system = (body.messages || []).filter((message) => message.role === 'system').map((message) => message.content).join('\n');
+    process.send?.({
+      event: 'mock_file_output_contract',
+      complete: system.includes('REQUIRED COMPLETE-FILE OUTPUT'),
+      edits: system.includes('REQUIRED LARGE-FILE OUTPUT FORMAT'),
+      contradictoryEditExample: system.includes('PREFER') || system.includes('"edits":'),
+      guardsPresent: system.includes('Do not weaken type checks') && system.includes('Never include secrets'),
+    });
+    const chunk = { id: 'fixture', object: 'chat.completion.chunk', created: 1, model: 'qwen3-coder-next', choices: [{ index: 0, delta: { role: 'assistant', content: '{}' }, finish_reason: 'stop' }] };
+    return new Response(`data: ${JSON.stringify(chunk)}\n\ndata: [DONE]\n\n`, { headers: { 'Content-Type': 'text/event-stream' } });
+  }
   return new Response(
     new ReadableStream({
       start(controller) {

@@ -64,6 +64,13 @@ export async function managedModelRequest(
       managedPhase: phase,
       managedProjectId: options.projectId,
       managedBatchMode: payload.batch ? (payload.batch.recovery ? 'recovery' : 'file') : undefined,
+      managedFileOutput: payload.batch
+        ? payload.batch.files.every(
+            ({ path }) => !payload.batch!.editOnlyPaths?.includes(path) || payload.fullFilePaths?.includes(path),
+          )
+          ? 'content'
+          : 'edits'
+        : undefined,
       managedTrace: {
         projectId: options.projectId,
         runId: payload.runId,

@@ -172,6 +172,17 @@ export function createBatchedModel(
     ): Promise<void> => {
       guard();
 
+      /*
+       * Small files have no need for fragile exact-search patches. Use the same
+       * complete-file contract on the first attempt and on recovery.
+       */
+      fullFilePaths = [
+        ...new Set([
+          ...fullFilePaths,
+          ...tasks.filter(({ path }) => (candidate[path]?.length || 0) < 6000).map(({ path }) => path),
+        ]),
+      ];
+
       const batchInput: ManagedModelInput = {
         ...input,
         files: candidate,

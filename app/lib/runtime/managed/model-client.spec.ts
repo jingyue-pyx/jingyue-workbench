@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { managedModelRequest } from './model-client';
-import { parsePlan } from './protocol';
+import { parsePlan, managedSystemPrompt } from './protocol';
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -25,6 +25,8 @@ describe('managed model request', () => {
     );
 
     const request = JSON.parse((fetch.mock.calls[0] as unknown as [string, RequestInit])[1].body as string);
+    expect(request.managedFileOutput).toBe(large ? 'edits' : 'content');
+
     const content = request.messages[0].content;
     const contract = JSON.parse(content.slice(content.indexOf('{'))).outputContract;
     expect(contract.changedResponse.files).toHaveLength(1);
@@ -33,6 +35,33 @@ describe('managed model request', () => {
     expect(contract.changedResponse.files[0]).not.toHaveProperty(large ? 'content' : 'edits');
     expect(JSON.stringify(contract)).not.toContain('src/App.tsx');
     expect(contract.instruction).toContain('新文件不可跳过');
+  });
+  it('uses an unambiguous complete-file server prompt for recovery instead of suggesting edits again', async () => {
+    const fetch = vi.fn(async () => new Response('0:"{}"\nd:{"finishReason":"stop"}\n'));
+    vi.stubGlobal('fetch', fetch);
+    await managedModelRequest(
+      'generate',
+      {
+        task: '修复两文件',
+        files: { 'src/App.tsx': 'x'.repeat(7000) },
+        errors: ['此前片段匹配失败'],
+        fullFilePaths: ['src/App.tsx'],
+        batch: { id: 2, recovery: true, files: [{ path: 'src/App.tsx', instruction: '改标题' }], editOnlyPaths: [] },
+      },
+      { provider: 'Bailian', model: 'fixture', signal: new AbortController().signal },
+    );
+
+    const body = JSON.parse((fetch.mock.calls[0] as unknown as [string, RequestInit])[1].body as string);
+    expect(body.managedFileOutput).toBe('content');
+    expect(body.managedBatchMode).toBe('recovery');
+
+    const prompt = managedSystemPrompt('generate', false, false, false, body.managedFileOutput);
+    expect(prompt).toContain('REQUIRED COMPLETE-FILE OUTPUT');
+    expect(prompt).not.toMatch(/PREFER|REQUIRED LARGE-FILE|use minimal exact edits|"edits":/);
+    expect(prompt).toContain('Do not output an edits field');
+    expect(prompt).toContain('Do not weaken type checks');
+    expect(prompt).toContain('Never include secrets');
+    expect(managedSystemPrompt('generate', false, false, false, 'edits')).toContain('REQUIRED LARGE-FILE');
   });
   it.each([
     ['JINGYUE_MODEL_NETWORK', 'network', '连接中断'],

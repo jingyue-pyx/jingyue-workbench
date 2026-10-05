@@ -242,6 +242,33 @@ try {
   assert.ok(logs.includes('managed_model_intent_JINGYUE_MODEL_UNAVAILABLE'));
   assert.ok(!logs.includes('private-provider-canary'));
   checks += 5;
+  for (const mode of ['content', 'edits']) {
+    const modelCount = modelEvents.filter((event) => event.event === 'mock_model_call').length;
+    const output = await fetch(origin + '/api/chat', {
+      method: 'POST',
+      headers: { authorization: auth, origin, 'content-type': 'application/json' },
+      body: JSON.stringify({
+        managedPhase: 'generate', managedFileOutput: mode, managedBatchMode: 'file', contextOptimization: false,
+        messages: [{ role: 'user', content: '[Model: qwen3-coder-next]\n\n[Provider: Bailian]\n\nfixture-file-output-contract' }],
+      }),
+    });
+    assert.equal(output.status, 200);
+    assert.ok((await output.text()).includes('stop'));
+    assert.equal(modelEvents.filter((event) => event.event === 'mock_model_call').length - modelCount, 1);
+    const contract = modelEvents.filter((event) => event.event === 'mock_file_output_contract').at(-1);
+    assert.ok(contract?.guardsPresent);
+    assert.equal(contract.complete, mode === 'content');
+    assert.equal(contract.edits, mode === 'edits');
+    assert.equal(contract.contradictoryEditExample, mode === 'edits');
+    checks += 7;
+  }
+  const invalidMode = await fetch(origin + '/api/chat', {
+    method: 'POST', headers: { authorization: auth, origin, 'content-type': 'application/json' },
+    body: JSON.stringify({ managedPhase: 'generate', managedFileOutput: ['content'], messages: [{ role: 'user', content: '[Model: qwen3-coder-next]\n\n[Provider: Bailian]\n\nfixture' }] }),
+  });
+  assert.equal(invalidMode.status, 400);
+  await invalidMode.arrayBuffer();
+  checks++;
   const stop = new AbortController();
   const response = await fetch(origin + '/api/chat', {
     method: 'POST',
