@@ -1,5 +1,5 @@
 import { scopedDatabaseName } from '~/lib/auth/account-context';
-import type { SourceFiles } from './protocol';
+import { RunError, type SourceFiles } from './protocol';
 
 // Bounded local recovery points per account/project; never cookies or provider settings.
 export async function checkpoint(
@@ -16,7 +16,7 @@ export async function checkpoint(
 
   try {
     if (files && new TextEncoder().encode(JSON.stringify(files)).byteLength > 4 * 1024 * 1024) {
-      throw new Error('恢复点超过本机 4 MiB 上限，未开始自动修改。');
+      throw new RunError('恢复点超过本机 4 MiB 上限，未开始自动修改。', false, 'recovery-storage');
     }
 
     return await new Promise((resolve, reject) => {

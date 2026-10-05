@@ -52,7 +52,7 @@ export async function managedModelRequest(
     });
 
   if (new TextEncoder().encode(content).byteLength > 650000) {
-    throw new RunError('项目上下文超过本期自动处理上限，请拆分工程；源码未删除。');
+    throw new RunError('项目上下文超过本期自动处理上限，请拆分工程；源码未删除。', false, 'source-size');
   }
 
   const response = await fetch('/api/chat', {

@@ -30,6 +30,31 @@ const signal = () => new AbortController().signal;
 const options = () => ({ guard: vi.fn(), retain: vi.fn().mockResolvedValue(undefined), diagnostic: vi.fn() });
 
 describe('bounded file scheduling', () => {
+  it.each([
+    [{ path: 'src/App.tsx' }],
+    [{ path: 'src/App.tsx', content: null }],
+    [
+      { path: 'src/App.tsx', content: 'bad' },
+      { path: 'src/App.tsx', content: 'bad' },
+    ],
+  ])('repairs malformed file entries without losing the next CSS batch: %j', async (...args) => {
+    const badFiles = args;
+    const before = { 'src/App.tsx': 'export const step = 2;', 'src/style.css': 'button{color:blue}' };
+    const hooks = options();
+    const request = vi
+      .fn()
+      .mockResolvedValueOnce(manifest('src/App.tsx', 'src/style.css'))
+      .mockResolvedValueOnce(JSON.stringify({ status: 'changed', summary: 'modify', files: badFiles }))
+      .mockResolvedValueOnce(patch({ 'src/App.tsx': 'export const step = 3;' }))
+      .mockResolvedValueOnce(patch({ 'src/style.css': 'button{color:green}' }));
+    const result = parsePatch(await createBatchedModel(request, hooks)('generate', input(before), signal()), before);
+    expect(result.files).toHaveLength(2);
+    expect(request).toHaveBeenCalledTimes(4);
+    expect(request.mock.calls[2][1].errors.join(' ')).toMatch(/content|重复/);
+    expect(request.mock.calls[3][1].files['src/App.tsx']).toBe('export const step = 3;');
+    expect(hooks.diagnostic).toHaveBeenCalledWith(expect.anything(), 'patch_format');
+    expect(before['src/App.tsx']).toBe('export const step = 2;');
+  });
   it.each(['css-first', 'app-first'])(
     'keeps the cloud two-file task progressing when the model returns identical CSS (%s)',
     async (order) => {

@@ -1,6 +1,14 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { runtimeEventName } from './runtime-events.mjs';
+test('accepts finite generation/storage diagnostics but never error objects or raw text', () => {
+  for (const reason of ['unsafe_path', 'protected_config', 'source_size', 'recovery_storage', 'storage_quota', 'internal_type', 'internal_reference', 'internal_error']) {
+    const event = { outcome: 'failed', stage: 'generating', reason, attempt: 0 };
+    assert.equal(runtimeEventName(event), `client_runtime_failed_generating_${reason}_repair_0`);
+    assert.equal(runtimeEventName({ ...event, detail: 'private-canary' }), null);
+    assert.equal(runtimeEventName({ ...event, error: { message: 'private-canary' } }), null);
+  }
+});
 test('accepts only finite final batch subtypes with no raw source fields', () => {
   for (const reason of ['patch_format', 'patch_mismatch', 'batch_scope', 'batch_missing']) {
     const event = { outcome: 'failed', stage: 'generating', reason, attempt: 0 };

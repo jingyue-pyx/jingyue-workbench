@@ -4,6 +4,7 @@ import type { BatchDiagnostic } from './file-batches';
 import type { ManagedModelInput } from './protocol';
 import { managedTrace } from './request-policy';
 import { batchFailureCode, BATCH_FAILURE_REASONS } from './batch-failure';
+import { failureReason } from './failure-code';
 
 /*
  * Compiler/package logs can contain HTTP 429, line numbers or timings. None of
@@ -14,7 +15,8 @@ const modelQuotaFailure = (text: string) =>
 
 // User-facing copy is independent from compiler output and logs.
 export function runMessage(
-  state: Pick<RunState, 'phase'> & Partial<Pick<RunState, 'events' | 'detail' | 'candidatePending' | 'attempt'>>,
+  state: Pick<RunState, 'phase'> &
+    Partial<Pick<RunState, 'events' | 'detail' | 'candidatePending' | 'attempt' | 'failureCode'>>,
 ) {
   if (state.phase === 'succeeded') {
     return '页面预览已就绪，可以继续查看或修改。';
@@ -29,6 +31,12 @@ export function runMessage(
   }
 
   if (state.phase === 'failed') {
+    const reason = failureReason(state.failureCode);
+
+    if (reason) {
+      return `本次未完成：${reason}。错误编号：${state.failureCode}。已保存源码保留；可以继续提问，无需重新描述项目。`;
+    }
+
     if ((state.detail || '').startsWith('当前能力不支持：')) {
       return `${safeDiagnostic(state.detail || '').slice(0, 700)}\n\n尚未生成源码或执行编译，这不是代码编译失败。可以接入所需后端能力后继续，或明确提出仅做前端原型。`;
     }
@@ -199,14 +207,26 @@ export function runtimeEvent(state: RunState) {
     stage:
       state.events.filter((event) => !['failed', 'cancelled', 'succeeded', 'unchanged'].includes(event.phase)).at(-1)
         ?.phase || 'idle',
-    reason: state.phase === 'failed' ? batchFailureCode(text) || reason : reason,
+    reason:
+      state.phase === 'failed'
+        ? failureReason(state.failureCode)
+          ? state.failureCode!
+          : batchFailureCode(text) || reason
+        : reason,
     attempt: state.attempt,
   };
 }
 
 // Best effort: do not block saving. Never send source, chat, credentials or raw logs.
 export function reportRuntime(state: RunState, projectId?: string) {
-  return reportEvent({ ...runtimeEvent(state), ...managedTrace({ projectId, runId: state.id }) });
+  const event = { ...runtimeEvent(state), ...managedTrace({ projectId, runId: state.id }) };
+
+  if (state.phase === 'failed') {
+    // Public finite metadata only: no Error object/message, source or model reply.
+    console.warn('jingyue_runtime_failure', JSON.stringify(event));
+  }
+
+  return reportEvent(event);
 }
 
 export function reportModelBatch(input: ManagedModelInput, code: BatchDiagnostic, projectId?: string) {

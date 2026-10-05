@@ -51,6 +51,20 @@ function fixture() {
 afterEach(() => vi.useRealTimers());
 
 describe('managed task lifecycle', () => {
+  it('preserves a typed generation failure without replacing the live project', async () => {
+    const { controller, adapter, setFiles } = fixture();
+    setFiles({ ...REACT_VITE_TEMPLATE });
+    vi.mocked(adapter.model)
+      .mockReset()
+      .mockResolvedValueOnce(plan)
+      .mockRejectedValueOnce(new RunError('private-canary', false, 'protected-config'));
+
+    const result = await controller.run('修改');
+    expect(result).toMatchObject({ phase: 'failed', failureCode: 'protected_config' });
+    expect(adapter.apply).not.toHaveBeenCalled();
+    expect(adapter.stop).not.toHaveBeenCalled();
+    expect(adapter.capture()).toEqual(REACT_VITE_TEMPLATE);
+  });
   it('generates a static site when authentication is provisioned but explicitly excluded from the task', async () => {
     const { controller, adapter } = fixture();
     adapter.appAuthEnabled = true;

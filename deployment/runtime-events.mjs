@@ -46,6 +46,14 @@ export function runtimeEventName(data) {
       'model_service',
       'sandbox',
       'other',
+      'unsafe_path',
+      'protected_config',
+      'source_size',
+      'recovery_storage',
+      'storage_quota',
+      'internal_type',
+      'internal_reference',
+      'internal_error',
     ].includes(data.reason)
   )
     return null;

@@ -1,6 +1,41 @@
 # 鲸月工作台：阿里云私有体验部署
 
-## Two-file cloud acceptance follow-up (2026-10-05; candidate pending upload)
+## Unclassified cloud generation failure (2026-10-06; follow-up candidate)
+
+- The user uploaded release `2811aa5cad45a202349b85b9bbf9cc2c6c830fe0c47e37ce13369268514e9017`
+  (source `65599dd`). Public `/healthz` returned that exact release ID and 200;
+  anonymous `/api/projects` remained 401. Upload succeeded.
+- In QA project `362b23e9-b156-46fc-976e-5b224ab84b52`, a subsequent actual
+  App.tsx + style.css modification failed during generation with reason
+  `other`; the third-version source and preview remained intact. The browser
+  console did not retain the actual generation error. Its update-checker
+  warning is unrelated. No fourth-version candidate was published. This is
+  **not** a successful two-file acceptance, and the historical cause remains
+  unproven.
+- Inspection found malformed file entries (missing/non-string content or
+  duplicate paths) were rejected as non-repairable generic runtime errors,
+  bypassing bounded batch correction. These now get an explicit format error
+  and the existing bounded correction; unsafe paths, protected configuration
+  and oversized content still fail closed. Regression fixtures require both
+  an App change and subsequent CSS change, without mutating the live input.
+- Typed finite labels distinguish protected config, unsafe paths, size and
+  browser recovery-storage failures, plus native internal exceptions. Only
+  allowlisted outcome/stage/reason/task IDs reach browser/server logs and saved
+  history, never raw model replies, file content, credentials or Error objects.
+  This enables diagnosis of the next real failure without weakening guards.
+- The code-only FC console attempt was still denied at the origin level by
+  browser auto-review. No alternate console, CLI, API or credential path was
+  used. A new code package needs an allowed upload before public acceptance
+  can resume. Environment variables, resources and cloud permissions are not
+  changed by this candidate.
+- Verification so far: 737 application tests, 132 deployment tests and
+  TypeScript checking passed. Malformed-entry regressions cover correction and
+  continuation into the second changed file; protected-path/config/size guards
+  and private-canary log tests remain enforced. Build/package verification is
+  recorded separately in the release receipt. These local checks do not prove
+  the unclassified historical cloud failure fixed.
+
+## Two-file cloud acceptance follow-up (2026-10-05; uploaded 2026-10-06)
 
 - Real public acceptance used the dedicated QA project
   `362b23e9-b156-46fc-976e-5b224ab84b52`. A request to update `src/App.tsx`

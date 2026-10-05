@@ -21,6 +21,7 @@ import { validateStyles } from './styles';
 import { assertSameSources, sourceRevision, sourceSnapshot } from './source-revision';
 import { validateCandidate } from './preflight';
 import { enforceTaskCapabilities, validateAppAuthIntegration } from './capabilities';
+import { failureCode } from './failure-code';
 
 export interface RunAdapter {
   appAuthEnabled?: boolean;
@@ -467,6 +468,7 @@ export class ManagedRunController {
         : error instanceof Error
           ? error.message
           : String(error);
+      this.state = { ...this.state, failureCode: signal.aborted ? undefined : failureCode(error) };
       this._update(signal.aborted ? 'cancelled' : 'failed', message);
 
       return this.state;

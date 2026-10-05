@@ -84,6 +84,7 @@ export interface FilePatch {
   files: { path: string; content: string }[];
 }
 export interface RunState {
+  failureCode?: string;
   candidatePending?: boolean;
   id: string;
   phase: RunPhase;
@@ -321,8 +322,16 @@ export function parsePatch(
   let bytes = 0;
 
   for (const file of patch.files) {
-    if (!file || typeof file.path !== 'string' || !sourcePath(file.path) || seen.has(file.path)) {
-      throw new RunError('文件改动包含不支持的路径、重复文件或超限内容。');
+    if (!file || typeof file.path !== 'string' || seen.has(file.path)) {
+      throw new RunError(
+        '文件条目格式无效或路径重复；每个文件必须有唯一的 path 与完整 content 或有效 edits。',
+        true,
+        'format',
+      );
+    }
+
+    if (!sourcePath(file.path)) {
+      throw new RunError('文件改动包含不支持的路径，未写入候选。', false, 'unsafe-path');
     }
 
     if (editOnlyPaths.includes(file.path) && !fullFilePaths.includes(file.path) && file.edits === undefined) {
@@ -397,14 +406,18 @@ export function parsePatch(
         resolved = resolved.slice(0, index) + edit.replace + resolved.slice(index + edit.search.length);
 
         if (resolved.length > 250000) {
-          throw new RunError('局部修改后的文件超过处理上限。');
+          throw new RunError('局部修改后的文件超过处理上限。', false, 'source-size');
         }
       }
       file.content = resolved;
     }
 
-    if (typeof file.content !== 'string' || file.content.length > 250000) {
-      throw new RunError('文件改动包含不支持的路径、重复文件或超限内容。');
+    if (typeof file.content !== 'string') {
+      throw new RunError('文件条目缺少完整的文本 content 或有效 edits；不能只返回路径或修改说明。', true, 'format');
+    }
+
+    if (file.content.length > 250000) {
+      throw new RunError('单文件内容超过处理上限。', false, 'source-size');
     }
 
     if (
@@ -412,7 +425,7 @@ export function parsePatch(
       previous[file.path] !== undefined &&
       previous[file.path] !== file.content
     ) {
-      throw new RunError('自动修复不能改写已有编译校验配置；请先人工确认工程配置。');
+      throw new RunError('自动修复不能改写已有编译校验配置；请先人工确认工程配置。', false, 'protected-config');
     }
 
     seen.add(file.path);
@@ -437,7 +450,7 @@ export function parsePatch(
           const newVersion = after.dependencies?.[key] || after.devDependencies?.[key];
 
           if (oldVersion && oldVersion !== newVersion) {
-            throw new RunError('自动修复不得删除或更换基础框架和校验工具版本。');
+            throw new RunError('自动修复不得删除或更换基础框架和校验工具版本。', false, 'protected-config');
           }
         }
       } catch (error) {
@@ -453,7 +466,7 @@ export function parsePatch(
   }
 
   if (bytes > 1024 * 1024) {
-    throw new RunError('本轮文件改动超过 1 MiB，请拆分任务。');
+    throw new RunError('本轮文件改动超过 1 MiB，请拆分任务。', false, 'source-size');
   }
 
   return {
