@@ -101,6 +101,17 @@ try {
   assert.equal(root.headers.get('cross-origin-embedder-policy'), 'require-corp');
   assert.equal(root.headers.get('referrer-policy'), 'strict-origin');
   checks++;
+  // Exercise the packaged server, not only the source module: double-digit
+  // repair results must survive ingestion while the ceiling remains finite.
+  for (const [attempt, status] of [[10, 200], [30, 200], [31, 400], ['30', 400]]) {
+    const response = await fetch(origin + '/api/runtime-events', {
+      method: 'POST',
+      headers: { authorization: auth, origin, 'content-type': 'application/json' },
+      body: JSON.stringify({ outcome: 'retrying', stage: 'typechecking', reason: 'compile', attempt }),
+    });
+    assert.equal(response.status, status);
+    checks++;
+  }
   const storageUnavailable = await fetch(origin + '/api/projects', { headers: { authorization: auth } });
   assert.equal(storageUnavailable.status, 503);
   assert.equal(storageUnavailable.headers.get('retry-after'), '5');

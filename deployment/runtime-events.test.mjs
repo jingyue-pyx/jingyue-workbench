@@ -1,15 +1,15 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { runtimeEventName } from './runtime-events.mjs';
-test('accepts six repair rounds, preserves old events and rejects unbounded attempts', () => {
+test('accepts thirty repair rounds, preserves old events and rejects unbounded attempts', () => {
   const event = { outcome: 'retrying', stage: 'typechecking', reason: 'compile' };
-  for (let attempt = 0; attempt <= 6; attempt++) {
+  for (let attempt = 0; attempt <= 30; attempt++) {
     assert.equal(runtimeEventName({ ...event, attempt }), `client_runtime_retrying_typechecking_compile_repair_${attempt}`);
   }
-  for (const attempt of [-1, 7, 1.5, '6', NaN, Infinity]) {
+  for (const attempt of [-1, 31, 1.5, '30', NaN, Infinity]) {
     assert.equal(runtimeEventName({ ...event, attempt }), null);
   }
-  assert.equal(runtimeEventName({ ...event, attempt: 6, detail: 'private-canary' }), null);
+  assert.equal(runtimeEventName({ ...event, attempt: 30, detail: 'private-canary' }), null);
 });
 test('distinguishes explicit cancellation, page lifecycle and deadline without raw details', () => {
   for (const reason of ['user_stop', 'page_left', 'manual_edit', 'superseded', 'task_timeout']) {

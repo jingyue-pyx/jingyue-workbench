@@ -18,12 +18,12 @@ const failed: RunState = {
 };
 afterEach(() => vi.unstubAllGlobals());
 describe('runtime presentation and diagnostics', () => {
-  it('retains repairs zero through six in saved results and rejects out-of-range attempts', () => {
-    for (let attempt = 0; attempt <= 6; attempt++) {
+  it('retains repairs zero through thirty in saved results and rejects out-of-range attempts', () => {
+    for (let attempt = 0; attempt <= 30; attempt++) {
       const state: RunState = {
         ...failed,
         attempt,
-        maxRepairs: 6,
+        maxRepairs: 30,
         detail: 'TS2305 private-canary',
         events: [{ phase: 'typechecking', detail: '', at: 1 }],
       };
@@ -34,7 +34,7 @@ describe('runtime presentation and diagnostics', () => {
       expect(runMessage(state)).not.toContain('private-canary');
     }
 
-    for (const attempt of ['7', '8', '9', '10', '-1', '1.5', '06']) {
+    for (const attempt of ['31', '99', '100', '-1', '1.5', '06', '030']) {
       expect(parseOutcomeAnnotation(`managed-outcome:failed:typechecking:compile:${attempt}`)).toBeUndefined();
     }
   });

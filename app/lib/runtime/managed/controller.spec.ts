@@ -811,7 +811,7 @@ describe('managed task lifecycle', () => {
     expect(adapter.model).toHaveBeenCalledTimes(2);
     expect(adapter.capture()['src/App.tsx']).toContain('待办');
   });
-  it('caps model repairs at six even if each failure differs', async () => {
+  it('caps model repairs at thirty even if each failure differs', async () => {
     const { controller, adapter } = fixture();
     let generation = 0;
     vi.mocked(adapter.model)
@@ -826,12 +826,12 @@ describe('managed task lifecycle', () => {
 
     const result = await controller.run('待办');
     expect(result.phase).toBe('failed');
-    expect(result.attempt).toBe(6);
-    expect(result.maxRepairs).toBe(6);
-    expect(adapter.verify).toHaveBeenCalledTimes(7);
-    expect(adapter.model).toHaveBeenCalledTimes(8); // Plan + initial generation + six repairs.
-  });
-  it('can succeed on the sixth repair without promoting earlier failed candidates', async () => {
+    expect(result.attempt).toBe(30);
+    expect(result.maxRepairs).toBe(30);
+    expect(adapter.verify).toHaveBeenCalledTimes(31);
+    expect(adapter.model).toHaveBeenCalledTimes(32); // Plan + initial generation + thirty repairs.
+  }, 30000);
+  it('can succeed on the thirtieth repair without promoting earlier failed candidates', async () => {
     const { controller, adapter, setFiles } = fixture();
     const original = { ...REACT_VITE_TEMPLATE };
     setFiles(original);
@@ -846,18 +846,18 @@ describe('managed task lifecycle', () => {
       expect(adapter.capture()).toEqual(original);
       expect(adapter.apply).not.toHaveBeenCalled();
 
-      if (++checks <= 6) {
+      if (++checks <= 30) {
         throw new RunError(`TS2322 error ${checks}`, true, 'compile');
       }
     });
 
     const result = await controller.run('修改营销页面');
-    expect(result).toMatchObject({ phase: 'succeeded', attempt: 6, maxRepairs: 6 });
-    expect(adapter.compileCandidate).toHaveBeenCalledTimes(7);
-    expect(adapter.model).toHaveBeenCalledTimes(8);
+    expect(result).toMatchObject({ phase: 'succeeded', attempt: 30, maxRepairs: 30 });
+    expect(adapter.compileCandidate).toHaveBeenCalledTimes(31);
+    expect(adapter.model).toHaveBeenCalledTimes(32);
     expect(adapter.apply).toHaveBeenCalledOnce();
-    expect(adapter.capture()['src/App.tsx']).toContain('7');
-  });
+    expect(adapter.capture()['src/App.tsx']).toContain('31');
+  }, 30000);
   it('still repairs a compiler error after two generation repairs', async () => {
     const { controller, adapter } = fixture();
     vi.mocked(adapter.model)
@@ -880,7 +880,7 @@ describe('managed task lifecycle', () => {
       .mockResolvedValue(undefined);
 
     const result = await controller.run('生成营销页面');
-    expect(result).toMatchObject({ phase: 'succeeded', attempt: 3, maxRepairs: 6 });
+    expect(result).toMatchObject({ phase: 'succeeded', attempt: 3, maxRepairs: 30 });
     expect(adapter.compileCandidate).toHaveBeenCalledTimes(2);
     expect(adapter.model).toHaveBeenCalledTimes(5);
     expect(adapter.apply).toHaveBeenCalledOnce();

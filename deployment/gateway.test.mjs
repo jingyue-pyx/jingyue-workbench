@@ -152,13 +152,13 @@ test('runtime events require authentication and same origin, contain finite labe
   for (const body of [
     { ...data, message: 'credential-canary' },
     { ...data, stage: 'credential-canary' },
-    { ...data, attempt: 7 },
+    { ...data, attempt: 31 },
     { ...data, reason: 'credential-canary' },
   ])
     assert.equal((await request(body)).status, 400);
   assert.equal((await request({ ...data, message: 'x'.repeat(1024) })).status, 413);
   assert.deepEqual(events, ['client_runtime_failed_planning_plan_format_repair_0']);
-  for (const attempt of [3, 6]) {
+  for (const attempt of [3, 6, 10, 30]) {
     assert.equal((await request({ ...data, attempt })).status, 200);
     assert.equal(events.at(-1), `client_runtime_failed_planning_plan_format_repair_${attempt}`);
   }

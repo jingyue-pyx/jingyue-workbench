@@ -1711,3 +1711,23 @@ Public release verification:
   Screenshot `jingyue-six-repairs-public-20261009.jpg` is outside Git. This is a
   candidate-continuation/build/preview pass, not a new from-zero generation,
   six forced real-model failures, or a complete visual/business acceptance.
+
+### 2026-10-09: thirty managed repair rounds
+
+- Follow-up user request increases the repair ceiling from six to thirty,
+  excluding initial generation. It gives changing candidates more opportunities
+  to resolve real validation errors without altering the existing workspace UI.
+- The controller, resumed task state, request traces, saved outcome parser and
+  server event validation now support rounds 0–30. Saved outcomes accept canonical
+  two-digit rounds, retain old records, and reject round 31, leading zeros,
+  fractions, negative numbers and arbitrary diagnostic payloads.
+- Existing 32-call / 160,000-reserved-token budgets, finite deadlines,
+  authentication, explicit cancellation and unchanged-source/unchanged-error
+  guards remain unchanged. Multiple model requests can occur within one repair
+  round; thirty is a ceiling, not a promise to spend thirty rounds per task.
+  Candidate verification is still required before replacing source or preview.
+- Regression cases exercise exhaustion after thirty repairs, success on repair
+  thirty with a single candidate promotion, and round-trip saved results and
+  authenticated diagnostics through round thirty. These use controlled fixtures,
+  not thirty intentionally induced paid model failures. Actual release and
+  public smoke-test results are recorded after deployment.

@@ -982,7 +982,7 @@ describe('bounded file scheduling', () => {
 
 describe('request policy and safe correlation', () => {
   it('uses finite server budgets and ignores caller token injection', () => {
-    expect(MANAGED_MAX_REPAIRS).toBe(6);
+    expect(MANAGED_MAX_REPAIRS).toBe(30);
     expect(MANAGED_TASK_BUDGET).toEqual({ maxCalls: 32, maxReservedTokens: 160000 });
     expect(managedOutputTokens('manifest', 'recovery')).toBe(2600);
     expect(managedOutputTokens('generate', 'file')).toBe(8000);
@@ -992,14 +992,14 @@ describe('request policy and safe correlation', () => {
   it('keeps only validated identifiers and bounded numbers', () => {
     const safe = { runId: input().runId, projectId: 'd63cb19b-9fef-4ae7-8855-293ad3fb2be2', attempt: 2, batch: 3 };
     expect(managedTrace({ ...safe, secret: 'never log' })).toEqual(safe);
-    expect(managedTrace({ projectId: 'private prompt', runId: 'token', attempt: 7, batch: 99 })).toEqual({});
+    expect(managedTrace({ projectId: 'private prompt', runId: 'token', attempt: 31, batch: 99 })).toEqual({});
   });
-  it('accepts all six repairs in request traces without accepting unbounded attempts', () => {
-    for (let attempt = 0; attempt <= 6; attempt++) {
+  it('accepts all thirty repairs in request traces without accepting unbounded attempts', () => {
+    for (let attempt = 0; attempt <= 30; attempt++) {
       expect(managedTrace({ attempt })).toEqual({ attempt });
     }
 
-    for (const attempt of [-1, 7, 1.5, '6', NaN, Infinity]) {
+    for (const attempt of [-1, 31, 1.5, '30', NaN, Infinity]) {
       expect(managedTrace({ attempt })).toEqual({});
     }
   });

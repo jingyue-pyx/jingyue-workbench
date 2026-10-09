@@ -78,7 +78,7 @@ export function runtimeEventName(data) {
     ].includes(data.reason)
   )
     return null;
-  if (!Number.isInteger(data.attempt) || data.attempt < 0 || data.attempt > 6) return null;
+  if (!Number.isInteger(data.attempt) || data.attempt < 0 || data.attempt > 30) return null;
   let suffix = '';
   for (const key of ['projectId', 'runId']) {
     if (data[key] === undefined) continue;

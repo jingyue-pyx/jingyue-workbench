@@ -50,7 +50,9 @@ export function parseOutcomeAnnotation(annotation: unknown) {
     return undefined;
   }
 
-  const match = /^managed-outcome:(failed|succeeded|unchanged|cancelled):([a-z]+):([a-z_]+):([0-9])$/.exec(annotation);
+  const match = /^managed-outcome:(failed|succeeded|unchanged|cancelled):([a-z]+):([a-z_]+):(0|[1-9][0-9]?)$/.exec(
+    annotation,
+  );
 
   if (
     !match ||
