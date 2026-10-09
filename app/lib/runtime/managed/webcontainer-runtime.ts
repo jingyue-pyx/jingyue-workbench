@@ -5,6 +5,20 @@ import { inspectProject, RunError, safeDiagnostic, type RunPhase, type SourceFil
 import { validateStyles } from './styles';
 import { installIntegrityScript } from './install-integrity';
 import { managedTypecheckConfig } from './typecheck';
+import { callbackRepairEvidence, iconRepairEvidence } from './compiler-repair';
+
+/*
+ * Browser/WASM compilation is not a native-server build. A real public
+ * portfolio build exceeded 90 seconds while still making valid progress.
+ * Keep a finite per-command cap; the controller also bounds all candidate work.
+ */
+export const MANAGED_BUILD_TIMEOUT_MS = 180000;
+
+/*
+ * Vite transforms modules again for its dev server after the production build.
+ * A slow initial mount is inconclusive, not evidence of broken application code.
+ */
+export const MANAGED_PREVIEW_MOUNT_TIMEOUT_MS = 60000;
 
 export function previewProbeScript(runId: string, parentOrigin: string) {
   return `(() => {
@@ -14,9 +28,9 @@ export function previewProbeScript(runId: string, parentOrigin: string) {
     const attempt=new URL(location.href).searchParams.get('__jingyue_attempt');
     window.parent.postMessage({type:'jingyue:runtime-ready',runId,attempt},target);
     let failed=false, sent=false, mountedAt=0;
-    function send(ok, detail) {
+    function send(ok, detail, kind='runtime') {
       if (sent) return; sent=true;
-      window.parent.postMessage({type:'jingyue:runtime-check',runId,attempt,ok,detail},target);
+      window.parent.postMessage({type:'jingyue:runtime-check',runId,attempt,ok,detail,kind},target);
     }
     window.addEventListener('error',e=>{failed=true;send(false,String(e.message||'页面运行错误'));});
     window.addEventListener('unhandledrejection',()=>{failed=true;send(false,'页面存在未处理的异步错误');});
@@ -29,7 +43,7 @@ export function previewProbeScript(runId: string, parentOrigin: string) {
         mountedAt ||= Date.now();
         if (Date.now()-mountedAt>=1500) send(true,'应用已挂载，初始观察期内未发现致命错误');
       } else mountedAt=0;
-      if (Date.now()-started>15000) send(false,'预览未在时限内挂载到 #root 或 #app');
+      if (Date.now()-started>${MANAGED_PREVIEW_MOUNT_TIMEOUT_MS}) send(false,'预览尚未完成初始加载，未观察到明确的运行错误；源码、编译结果和开发服务保留，可重新连接预览。','mount-timeout');
       if (sent) clearInterval(timer);
     },100);
   })();`;
@@ -219,6 +233,8 @@ export class WebContainerRuntime {
     }
     this.#processes.add(process);
 
+    const startedAt = Date.now();
+
     let output = '';
     const outputAbort = new AbortController();
     const drain = process.output
@@ -243,6 +259,24 @@ export class WebContainerRuntime {
       signal.addEventListener('abort', onAbort, { once: true });
       timer = setTimeout(() => {
         process.kill();
+        console.warn(
+          '[Managed command timeout]',
+          JSON.stringify({
+            tool:
+              command === 'npm'
+                ? 'install'
+                : args[0] === 'node_modules/typescript/bin/tsc'
+                  ? 'typecheck'
+                  : args[0] === 'node_modules/vite/bin/vite.js'
+                    ? 'build'
+                    : 'runtime',
+            timeoutMs,
+            elapsedMs: Date.now() - startedAt,
+            workspace: this._directory === '.' ? 'live' : 'candidate',
+            receivedOutput: output.length > 0,
+            visibility: typeof document === 'undefined' ? 'unknown' : document.visibilityState,
+          }),
+        );
         reject(new RunError('执行超时，已停止进程。\n' + safeDiagnostic(output), false, 'timeout'));
       }, timeoutMs);
 
@@ -275,6 +309,73 @@ export class WebContainerRuntime {
       signal.throwIfAborted();
 
       if (code !== 0) {
+        const tool =
+          command === 'npm'
+            ? 'install'
+            : args[0] === 'node_modules/typescript/bin/tsc'
+              ? 'typecheck'
+              : args[0] === 'node_modules/vite/bin/vite.js'
+                ? 'build'
+                : 'runtime';
+        const compilerLines = output
+          .replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, '')
+          .split(/[\r\n]/)
+          .filter((line) => /\berror TS\d{4,5}:/.test(line));
+        const diagnosticOrigins = [
+          ...new Set(
+            compilerLines.map((line) => {
+              const file = /^(.+?)\(\d+,\d+\):/.exec(line)?.[1] || '';
+              return /(?:^|[\\/])node_modules[\\/]/.test(file)
+                ? 'dependency'
+                : /(?:^|[\\/])src[\\/]/.test(file)
+                  ? 'source'
+                  : 'other';
+            }),
+          ),
+        ];
+
+        // Finite compiler codes only: no source lines, identifiers, paths or credentials.
+        console.warn(
+          '[Managed command failure]',
+          JSON.stringify({
+            tool,
+            exitCode: code,
+            typeScriptCodes: [...new Set(output.match(/\bTS\d{4,5}\b/g) || [])].slice(0, 12),
+            diagnosticOrigins,
+          }),
+        );
+
+        if (tool === 'typecheck') {
+          /*
+           * The existing local terminal can inspect complete compiler evidence;
+           * never send this text to console or server telemetry.
+           */
+          this._log('[类型检查诊断]\n' + safeDiagnostic(output));
+        }
+
+        if (
+          tool === 'typecheck' &&
+          compilerLines.some((line) => /^(?:.*[\\/])?node_modules[\\/][^(]*\(\d+,\d+\): error TS1\d{3}:/.test(line))
+        ) {
+          throw new RunError(
+            '依赖包未通过语法检查，可能不完整或不兼容；不能通过改写业务源码解决。',
+            false,
+            'dependencies',
+          );
+        }
+
+        /*
+         * An aborted/killed VM process is not a source error. Rewriting business
+         * code cannot repair it; preserve the candidate instead of spending AI retries.
+         */
+        if ([130, 134, 137, 139, 143].includes(code)) {
+          throw new RunError(
+            `浏览器沙箱进程提前终止（退出码 ${code}），候选源码保留；需重新检查运行环境。`,
+            false,
+            'sandbox',
+          );
+        }
+
         if (code === 86 && command === 'node' && args[0] === '.jingyue-runtime/check-install.mjs') {
           throw new RunError(
             '依赖安装不完整：检测到缺失或空的依赖包，需重新安装，不能通过修改业务源码修复。',
@@ -305,6 +406,16 @@ export class WebContainerRuntime {
           network ? 'network' : 'compile',
         );
       }
+
+      if (command === 'node' && args[0] === 'node_modules/vite/bin/vite.js') {
+        console.info(
+          '[Managed build complete]',
+          JSON.stringify({
+            elapsedMs: Date.now() - startedAt,
+            workspace: this._directory === '.' ? 'live' : 'candidate',
+          }),
+        );
+      }
     } finally {
       outputAbort.abort();
       clearTimeout(timer!);
@@ -318,6 +429,7 @@ export class WebContainerRuntime {
     files: SourceFiles,
     signal: AbortSignal,
     stage: (phase: RunPhase, detail: string) => void,
+    dependencyRecovery = 0,
   ): Promise<void> {
     this.#compiledSources = '';
 
@@ -428,18 +540,79 @@ export class WebContainerRuntime {
     if (profile.typed) {
       stage('typechecking', '执行独立 TypeScript 类型检查（不能由模型关闭）');
       await this.writeSource('.jingyue-runtime/tsconfig.json', JSON.stringify(managedTypecheckConfig()), signal);
-      await this.command(
-        'node',
-        ['node_modules/typescript/bin/tsc', '--project', '.jingyue-runtime/tsconfig.json'],
-        signal,
-        90000,
-      );
+
+      try {
+        await this.command(
+          'node',
+          ['node_modules/typescript/bin/tsc', '--project', '.jingyue-runtime/tsconfig.json', '--pretty', 'false'],
+          signal,
+          90000,
+        );
+      } catch (error) {
+        signal.throwIfAborted();
+
+        if (error instanceof RunError && error.category === 'compile') {
+          const evidence = callbackRepairEvidence(error.message);
+
+          if (evidence) {
+            throw new RunError(error.message + evidence, true, 'compile');
+          }
+        }
+
+        if (error instanceof RunError && error.category === 'compile' && /TS(?:2305|2724)/.test(error.message)) {
+          const evidence = await iconRepairEvidence(error.message, (path) =>
+            this._waitForSDK(() => wc.fs.readFile(this._path(path), 'utf8'), signal, '读取图标导出声明'),
+          );
+          signal.throwIfAborted();
+          throw new RunError(error.message + evidence, true, 'compile');
+        }
+
+        if (!(error instanceof RunError) || error.category !== 'dependencies' || dependencyRecovery >= 1) {
+          throw error;
+        }
+
+        stage('installing', '依赖包语法检查失败，正在重建依赖并复检 1/1；业务源码不变');
+        this.#installed = '';
+        this.#installedInput = '';
+        await this._waitForSDK(
+          () => wc.fs.rm(this._path('node_modules'), { recursive: true, force: true }),
+          signal,
+          '重建异常依赖',
+        );
+        await this.compile(files, signal, stage, dependencyRecovery + 1);
+
+        return;
+      }
     } else {
       stage('typechecking', '此工程为 JavaScript；语法与模块检查由下一步构建执行');
     }
 
     stage('building', '执行 Vite 正式构建，不使用模型提供的 shell 命令');
-    await this.command('node', ['node_modules/vite/bin/vite.js', 'build', '--outDir', '.jingyue-build'], signal, 90000);
+
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        await this.command(
+          'node',
+          ['node_modules/vite/bin/vite.js', 'build', '--outDir', '.jingyue-build'],
+          signal,
+          MANAGED_BUILD_TIMEOUT_MS,
+        );
+        break;
+      } catch (error) {
+        signal.throwIfAborted();
+
+        if (!(error instanceof RunError) || error.category !== 'timeout' || attempt) {
+          throw error;
+        }
+
+        /*
+         * A stalled worker is not a source diagnostic. The previous process
+         * has been stopped by command(); retry unchanged source once, within
+         * the existing task deadline, without spending an AI repair attempt.
+         */
+        stage('building', '构建进程等待超时，正在原样复跑 1/1；不修改源码、不调用模型');
+      }
+    }
     this.#compiledSources = JSON.stringify(Object.entries(files).sort(([a], [b]) => a.localeCompare(b)));
   }
 
@@ -528,7 +701,11 @@ export class WebContainerRuntime {
         signal.throwIfAborted();
       }
 
-      const exited = dev.exit.then(() => {
+      const exited = dev.exit.then((exitCode) => {
+        if (this.#dev === dev) {
+          console.warn('[Managed preview process exit]', JSON.stringify({ exitCode }));
+        }
+
         if (this.#dev === dev) {
           this.#dev = undefined;
           this.#preview = undefined;
@@ -541,7 +718,33 @@ export class WebContainerRuntime {
       const url = await Promise.race([ready, exited]);
       this.#preview = { url, runId };
       stage('previewing', '检查页面初始挂载、运行异常和构建错误');
-      await Promise.race([this._checkPreview(url, runId, signal, stage), exited]);
+
+      try {
+        await Promise.race([this._checkPreview(url, runId, signal, stage), exited]);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : '';
+
+        // Finite symptoms only, never the raw runtime exception/source/URL.
+        console.warn(
+          '[Managed preview check failure]',
+          JSON.stringify({
+            category: error instanceof RunError ? error.category : 'internal',
+            kind: error instanceof TypeError ? 'type' : error instanceof ReferenceError ? 'reference' : 'runtime',
+            symptom: /React is not defined/.test(message)
+              ? 'missing-react'
+              : /未处理的异步/.test(message)
+                ? 'unhandled-rejection'
+                : /未.*挂载/.test(message)
+                  ? 'mount-timeout'
+                  : /开发服务.*退出/.test(message)
+                    ? 'process-exit'
+                    : /预览.*(?:连接|响应)/.test(message)
+                      ? 'transport'
+                      : 'unknown',
+          }),
+        );
+        throw error;
+      }
 
       return url;
     } finally {
@@ -699,7 +902,7 @@ export class WebContainerRuntime {
                   'preview-network',
                 ),
               );
-            }, 20000);
+            }, MANAGED_PREVIEW_MOUNT_TIMEOUT_MS + 5000);
           }
 
           return;
@@ -708,6 +911,20 @@ export class WebContainerRuntime {
         if (event.data.ok === true) {
           cleanup();
           resolve();
+        } else if (event.data.kind === 'mount-timeout') {
+          /*
+           * A reached HTML probe with no mounted root can be slow module
+           * transformation/loading. Never send this absence of evidence to the
+           * model as a source bug or kill the reusable dev server.
+           */
+          cleanup();
+          reject(
+            new RunError(
+              '预览尚未完成初始加载，未观察到明确的运行错误；源码、编译结果和开发服务保留，可重新连接预览。',
+              false,
+              'preview-network',
+            ),
+          );
         } else {
           fail(safeDiagnostic(String(event.data.detail || '预览检查未通过。')));
         }

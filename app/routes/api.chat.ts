@@ -13,6 +13,7 @@ import { createSummary } from '~/lib/.server/llm/create-summary';
 import { extractPropertiesFromMessage } from '~/lib/.server/llm/utils';
 import { managedSystemPrompt, type ManagedPhase } from '~/lib/runtime/managed/protocol';
 import { conversationPrompt, type ConversationPhase } from '~/lib/runtime/managed/conversation';
+import { conversationContextContract } from '~/lib/runtime/managed/conversation-context';
 import { managedOutputTokens, managedTrace as sanitizeManagedTrace } from '~/lib/runtime/managed/request-policy';
 import { modelFailureCode, modelFailureEvent } from '~/lib/runtime/managed/model-errors';
 
@@ -88,7 +89,9 @@ async function chatAction({ context, request }: ActionFunctionArgs) {
     if (
       !['intent', 'answer', 'plan', 'manifest', 'generate', 'repair'].includes(managedPhase) ||
       !Array.isArray(messages) ||
-      (managedFileOutput !== undefined && managedFileOutput !== 'content' && managedFileOutput !== 'edits') ||
+      (managedFileOutput !== undefined && !['content', 'edits', 'source'].includes(String(managedFileOutput))) ||
+      (managedFileOutput !== undefined && typeof managedFileOutput !== 'string') ||
+      (managedFileOutput === 'source' && managedSingleFile !== true) ||
       (managedSingleFile !== undefined && typeof managedSingleFile !== 'boolean') ||
       (managedSingleFile === true &&
         (!['generate', 'repair'].includes(managedPhase) || managedFileOutput === undefined)) ||
@@ -108,16 +111,23 @@ async function chatAction({ context, request }: ActionFunctionArgs) {
       providerSettings,
       options: {
         system:
-          managedPhase === 'intent' || managedPhase === 'answer'
+          conversationContextContract +
+          (managedPhase === 'intent' || managedPhase === 'answer'
             ? conversationPrompt(managedPhase)
             : managedSystemPrompt(
                 managedPhase,
                 managedPlanFinalization === true,
                 managedDemoStorage === true,
                 managedAppAuth === true,
-                managedFileOutput === 'content' ? 'content' : managedFileOutput === 'edits' ? 'edits' : undefined,
+                managedFileOutput === 'content'
+                  ? 'content'
+                  : managedFileOutput === 'edits'
+                    ? 'edits'
+                    : managedFileOutput === 'source'
+                      ? 'source'
+                      : undefined,
                 managedSingleFile === true,
-              ),
+              )),
         abortSignal: request.signal,
         maxTokens: managedOutputTokens(managedPhase, managedBatchMode),
         toolChoice: 'none',

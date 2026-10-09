@@ -31,6 +31,7 @@ const password = 'not-a-real-password-smoke-only';
 const fakeKey = 'not-a-real-model-key-smoke-only';
 const fakeDatabasePassword = 'not-a-real-database-password-smoke-only';
 const databaseCase = process.env.VERIFY_DATABASE_CASE || 'unconfigured';
+const sourceRecoveryCase = process.env.VERIFY_SOURCE_RECOVERY === '1';
 assert.ok(['unconfigured', 'demo-dns-denied', 'demo-config-conflict'].includes(databaseCase));
 const runtimeNode = execFileSync(process.env.VERIFY_NODE_BINARY || process.execPath, ['--version'], {
   encoding: 'utf8',
@@ -242,7 +243,8 @@ try {
   assert.ok(logs.includes('managed_model_intent_JINGYUE_MODEL_UNAVAILABLE'));
   assert.ok(!logs.includes('private-provider-canary'));
   checks += 5;
-  for (const { mode, single } of [
+  // Separate fresh-process pass: do not exhaust or weaken the real 10/min gateway limit.
+  for (const { mode, single } of sourceRecoveryCase ? [{ mode: 'source', single: true }] : [
     { mode: 'content', single: false }, { mode: 'edits', single: false },
     { mode: 'content', single: true }, { mode: 'edits', single: true },
   ]) {
@@ -263,11 +265,17 @@ try {
     assert.equal(contract.complete, mode === 'content');
     assert.equal(contract.edits, mode === 'edits');
     assert.equal(contract.contradictoryEditExample, mode === 'edits');
-    assert.equal(contract.single, single);
+    assert.equal(contract.single, single && mode !== 'source');
     assert.equal(contract.filesExample, !single);
-    checks += 9;
+    assert.equal(contract.source, mode === 'source');
+    assert.equal(contract.contradictoryJson, mode !== 'source');
+    checks += 11;
   }
-  for (const invalid of [
+  for (const invalid of sourceRecoveryCase ? [
+    { managedPhase: 'generate', managedFileOutput: 'source' },
+    { managedPhase: 'generate', managedFileOutput: 'source', managedSingleFile: false },
+    { managedPhase: 'plan', managedFileOutput: 'source', managedSingleFile: true },
+  ] : [
     { managedPhase: 'generate', managedFileOutput: 'content', managedSingleFile: 'true' },
     { managedPhase: 'intent', managedFileOutput: 'content', managedSingleFile: true },
     { managedPhase: 'generate', managedSingleFile: true },

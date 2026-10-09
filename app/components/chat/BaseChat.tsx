@@ -41,6 +41,7 @@ import { expoUrlAtom } from '~/lib/stores/qrCodeStore';
 import { useStore } from '@nanostores/react';
 import { StickToBottom, useStickToBottomContext } from '~/lib/hooks';
 import { fetchModelCatalog } from '~/lib/api/model-catalog';
+import { handleComposerKeyDown } from './composer-keyboard';
 
 const TEXTAREA_MIN_HEIGHT = 76;
 
@@ -564,27 +565,7 @@ export const BaseChat = React.forwardRef<HTMLDivElement, BaseChatProps>(
                           }
                         });
                       }}
-                      onKeyDown={(event) => {
-                        if (event.key === 'Enter') {
-                          if (event.shiftKey) {
-                            return;
-                          }
-
-                          event.preventDefault();
-
-                          if (isStreaming) {
-                            handleStop?.();
-                            return;
-                          }
-
-                          // ignore if using input method engine
-                          if (event.nativeEvent.isComposing) {
-                            return;
-                          }
-
-                          handleSendMessage?.(event);
-                        }
-                      }}
+                      onKeyDown={(event) => handleComposerKeyDown(event, isStreaming, handleSendMessage)}
                       value={input}
                       onChange={(event) => {
                         handleInputChange?.(event);

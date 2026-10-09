@@ -1,9 +1,9 @@
 import type { WebContainer, WebContainerProcess } from '@webcontainer/api';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { WebContainerRuntime } from './webcontainer-runtime';
+import { MANAGED_BUILD_TIMEOUT_MS, WebContainerRuntime } from './webcontainer-runtime';
 import { RunError } from './protocol';
 
-function processFixture(exit: Promise<number>, output = '') {
+function processFixture(exit: Promise<number>, output = '', log?: (text: string) => void) {
   const kill = vi.fn();
   const process = {
     exit,
@@ -18,7 +18,7 @@ function processFixture(exit: Promise<number>, output = '') {
   const spawn = vi.fn().mockResolvedValue(process);
   const wc = { workdir: '/home/project', spawn } as unknown as WebContainer;
 
-  return { runtime: new WebContainerRuntime(Promise.resolve(wc)), process, spawn, kill };
+  return { runtime: new WebContainerRuntime(Promise.resolve(wc), log), process, spawn, kill };
 }
 
 afterEach(() => {
@@ -27,6 +27,229 @@ afterEach(() => {
 });
 
 describe('independent runtime processes', () => {
+  it('makes complete redacted compiler evidence available only to the local log callback', async () => {
+    const log = vi.fn();
+    const warning = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+    try {
+      const { runtime } = processFixture(
+        Promise.resolve(2),
+        'src/App.tsx(12,8): error TS2345: canary api_key=secret-value',
+        log,
+      );
+      await expect(
+        runtime.command('node', ['node_modules/typescript/bin/tsc'], new AbortController().signal, 1000),
+      ).rejects.toMatchObject({ category: 'compile' });
+
+      const complete = log.mock.calls.find(([text]) => text.startsWith('[类型检查诊断]'))?.[0];
+      expect(complete).toContain('src/App.tsx(12,8): error TS2345');
+      expect(complete).not.toContain('secret-value');
+      expect(JSON.stringify(warning.mock.calls)).not.toContain('canary');
+    } finally {
+      warning.mockRestore();
+    }
+  });
+  it('enriches missing icon errors with installed export names before model repair', async () => {
+    const readFile = vi
+      .fn()
+      .mockImplementation(async (path: string) =>
+        path.endsWith('index.d.ts')
+          ? 'export declare const FaBullseye: IconType;\nexport declare const FaUsers: IconType;'
+          : '{}',
+      );
+    const runtime = new WebContainerRuntime(
+      Promise.resolve({ fs: { readFile } } as unknown as WebContainer),
+      undefined,
+      '.jingyue-candidates/test',
+    );
+    vi.spyOn(runtime, 'writeSource').mockResolvedValue(undefined);
+
+    const command = vi.spyOn(runtime, 'command').mockImplementation(async (_command, args) => {
+      if (args[0] === 'node_modules/typescript/bin/tsc') {
+        throw new RunError(
+          'src/App.tsx(1,1): error TS2305: Module "react-icons/fa" has no exported member \'FaTarget\'.',
+          true,
+          'compile',
+        );
+      }
+    });
+    await expect(
+      runtime.compile(
+        {
+          'package.json': JSON.stringify({
+            dependencies: {
+              react: '18.3.1',
+              'react-dom': '18.3.1',
+              vite: '5.4.21',
+              typescript: '5.5.2',
+              '@types/react': '18.3.3',
+              '@types/react-dom': '18.3.0',
+            },
+          }),
+          'src/App.tsx': 'export default function App() { return <h1>Hello</h1>; }',
+          'index.html': '<div id="root"></div>',
+        },
+        new AbortController().signal,
+        () => {},
+      ),
+    ).rejects.toThrow('FaBullseye');
+    expect(readFile).toHaveBeenCalledWith('.jingyue-candidates/test/node_modules/react-icons/fa/index.d.ts', 'utf8');
+    expect(command.mock.calls.filter(([name]) => name === 'npm')).toHaveLength(1);
+  });
+  it('passes the observed updater/value mismatch to repair without changing source or weakening type checks', async () => {
+    const runtime = new WebContainerRuntime(
+      Promise.resolve({ fs: { readFile: vi.fn().mockResolvedValue('{}') } } as unknown as WebContainer),
+    );
+    const write = vi.spyOn(runtime, 'writeSource').mockResolvedValue(undefined);
+    const diagnostic =
+      "src/components/MarketingForm.tsx(26,17): error TS2345: Argument of type '(prev: string[]) => string[]' is not assignable to parameter of type 'string[]'.";
+    vi.spyOn(runtime, 'command').mockImplementation(async (_command, args) => {
+      if (args[0] === 'node_modules/typescript/bin/tsc') {
+        throw new RunError(diagnostic, true, 'compile');
+      }
+    });
+    await expect(
+      runtime.compile(
+        {
+          'package.json': JSON.stringify({
+            dependencies: {
+              react: '18.3.1',
+              'react-dom': '18.3.1',
+              vite: '5.4.21',
+              typescript: '5.5.2',
+              '@types/react': '18.3.3',
+              '@types/react-dom': '18.3.0',
+            },
+          }),
+          'src/App.tsx': 'export default function App() { return <h1>Hello</h1>; }',
+          'index.html': '<div id="root"></div>',
+        },
+        new AbortController().signal,
+        vi.fn(),
+      ),
+    ).rejects.toMatchObject({
+      category: 'compile',
+      repairable: true,
+      message: expect.stringContaining(diagnostic + '\nCALLBACK CONTRACT MISMATCH'),
+    });
+    expect(write.mock.calls.every(([path]) => path.startsWith('.jingyue-runtime/'))).toBe(true);
+
+    const config = write.mock.calls.find(([path]) => path.endsWith('tsconfig.json'));
+    expect(JSON.parse(config![1]).compilerOptions.strict).toBe(true);
+  });
+  it.each([130, 134, 137, 139, 143])('does not ask AI to repair a terminated sandbox process (%s)', async (code) => {
+    const warning = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+    try {
+      const { runtime } = processFixture(Promise.resolve(code), 'private-source-canary');
+      await expect(
+        runtime.command('node', ['node_modules/typescript/bin/tsc'], new AbortController().signal, 1000),
+      ).rejects.toMatchObject({ category: 'sandbox', repairable: false });
+      expect(JSON.stringify(warning.mock.calls)).not.toContain('private-source-canary');
+      expect(warning).toHaveBeenCalledWith(
+        '[Managed command failure]',
+        JSON.stringify({ tool: 'typecheck', exitCode: code, typeScriptCodes: [], diagnosticOrigins: [] }),
+      );
+    } finally {
+      warning.mockRestore();
+    }
+  });
+
+  it('records finite TypeScript diagnostic codes, never compiler source excerpts', async () => {
+    const warning = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+    try {
+      const { runtime } = processFixture(
+        Promise.resolve(2),
+        'src/Private.tsx(3,1): error TS2305: private-source-canary\nsrc/Private.tsx(4,1): error TS2305: another-name\nerror TS2322: identifier',
+      );
+      await expect(
+        runtime.command('node', ['node_modules/typescript/bin/tsc'], new AbortController().signal, 1000),
+      ).rejects.toMatchObject({ category: 'compile', repairable: true });
+      expect(warning).toHaveBeenCalledWith(
+        '[Managed command failure]',
+        JSON.stringify({
+          tool: 'typecheck',
+          exitCode: 2,
+          typeScriptCodes: ['TS2305', 'TS2322'],
+          diagnosticOrigins: ['source', 'other'],
+        }),
+      );
+      expect(JSON.stringify(warning.mock.calls)).not.toContain('private-source-canary');
+      expect(JSON.stringify(warning.mock.calls)).not.toContain('Private.tsx');
+    } finally {
+      warning.mockRestore();
+    }
+  });
+  it('classifies dependency syntax damage separately from application syntax errors', async () => {
+    const warning = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+    try {
+      const dependency = processFixture(
+        Promise.resolve(2),
+        'node_modules/react-icons/fa/index.d.ts(10,1): error TS1005: token expected',
+      );
+      await expect(
+        dependency.runtime.command('node', ['node_modules/typescript/bin/tsc'], new AbortController().signal, 1000),
+      ).rejects.toMatchObject({ category: 'dependencies', repairable: false });
+
+      const source = processFixture(Promise.resolve(2), 'src/App.tsx(10,1): error TS1005: token expected');
+      await expect(
+        source.runtime.command('node', ['node_modules/typescript/bin/tsc'], new AbortController().signal, 1000),
+      ).rejects.toMatchObject({ category: 'compile', repairable: true });
+    } finally {
+      warning.mockRestore();
+    }
+  });
+
+  it.each([false, true])(
+    'reinstalls syntactically broken dependencies once without rewriting source (persistent=%s)',
+    async (persistent) => {
+      const fs = { readFile: vi.fn().mockResolvedValue('{}'), rm: vi.fn().mockResolvedValue(undefined) };
+      const runtime = new WebContainerRuntime(
+        Promise.resolve({ fs } as unknown as WebContainer),
+        undefined,
+        '.jingyue-candidates/test',
+      );
+      const write = vi.spyOn(runtime, 'writeSource').mockResolvedValue(undefined);
+      let checks = 0;
+      const command = vi.spyOn(runtime, 'command').mockImplementation(async (_command, args) => {
+        if (args[0] === 'node_modules/typescript/bin/tsc' && (++checks === 1 || persistent)) {
+          throw new RunError('依赖包语法失败', false, 'dependencies');
+        }
+      });
+      const files = {
+        'package.json': JSON.stringify({
+          dependencies: {
+            react: '18.3.1',
+            'react-dom': '18.3.1',
+            vite: '5.4.21',
+            typescript: '5.5.2',
+            '@types/react': '18.3.3',
+            '@types/react-dom': '18.3.0',
+          },
+        }),
+        'index.html': '<div id="root"></div>',
+        'src/App.tsx': 'export default function App(){return <main/>}',
+      };
+      const pending = runtime.compile(files, new AbortController().signal, vi.fn());
+
+      if (persistent) {
+        await expect(pending).rejects.toMatchObject({ category: 'dependencies', repairable: false });
+      } else {
+        await pending;
+      }
+
+      expect(checks).toBe(2);
+      expect(fs.rm).toHaveBeenCalledOnce();
+      expect(fs.rm).toHaveBeenCalledWith('.jingyue-candidates/test/node_modules', {
+        recursive: true,
+        force: true,
+      });
+      expect(command.mock.calls.filter(([cmd]) => cmd === 'npm')).toHaveLength(2);
+      expect(write.mock.calls.some(([path]) => path.startsWith('src/'))).toBe(false);
+    },
+  );
   it('scopes candidate writes and spawned processes without touching the live cwd', async () => {
     const fs = { mkdir: vi.fn(), writeFile: vi.fn() };
     const { process } = processFixture(Promise.resolve(0));
@@ -123,6 +346,49 @@ describe('independent runtime processes', () => {
     'package.json': JSON.stringify({ dependencies: { react: '18.3.1', 'react-dom': '18.3.1', vite: '5.4.21' } }),
     'index.html': '<div id="root"></div>',
   };
+  it.each(['recovers', 'times-out', 'source-error', 'cancelled'])('bounds unchanged build retry: %s', async (mode) => {
+    const runtime = new WebContainerRuntime(
+      Promise.resolve({ fs: { readFile: vi.fn().mockResolvedValue('{}') } } as unknown as WebContainer),
+    );
+    vi.spyOn(runtime, 'writeSource').mockResolvedValue(undefined);
+
+    const abort = new AbortController();
+    let builds = 0;
+    const stage = vi.fn();
+    vi.spyOn(runtime, 'command').mockImplementation(async (_command, args, _signal, timeoutMs) => {
+      if (args[0] !== 'node_modules/vite/bin/vite.js') {
+        return;
+      }
+
+      expect(timeoutMs).toBe(MANAGED_BUILD_TIMEOUT_MS);
+      builds++;
+
+      if (mode === 'cancelled') {
+        abort.abort(new Error('explicit stop'));
+      }
+
+      if (mode === 'source-error') {
+        throw new RunError('Invalid import', true, 'compile');
+      }
+
+      if (builds === 1 || mode === 'times-out') {
+        throw new RunError('stalled worker', false, 'timeout');
+      }
+    });
+
+    const result = runtime.compile(jsFiles, abort.signal, stage);
+
+    if (mode === 'recovers') {
+      await expect(result).resolves.toBeUndefined();
+    } else if (mode === 'cancelled') {
+      await expect(result).rejects.toThrow('explicit stop');
+    } else {
+      await expect(result).rejects.toMatchObject({ category: mode === 'source-error' ? 'compile' : 'timeout' });
+    }
+
+    expect(builds).toBe(mode === 'cancelled' || mode === 'source-error' ? 1 : 2);
+  });
+
   it('reuses an install when the saved snapshot omits the runtime-generated lockfile', async () => {
     const runtime = new WebContainerRuntime(
       Promise.resolve({ fs: { readFile: vi.fn().mockResolvedValue('{}') } } as unknown as WebContainer),
@@ -399,6 +665,42 @@ describe('independent runtime processes', () => {
     const { runtime, kill } = processFixture(new Promise(() => undefined));
     const result = runtime.command('node', ['build'], new AbortController().signal, 100).catch((error) => error);
     await vi.advanceTimersByTimeAsync(101);
+    expect(await result).toMatchObject({ category: 'timeout', repairable: false });
+    expect(kill).toHaveBeenCalled();
+  });
+  it('does not kill a valid browser build that takes longer than 90 seconds', async () => {
+    vi.useFakeTimers();
+
+    let finish!: (code: number) => void;
+    const { runtime, kill } = processFixture(
+      new Promise<number>((resolve) => {
+        finish = resolve;
+      }),
+    );
+    const result = runtime.command(
+      'node',
+      ['node_modules/vite/bin/vite.js', 'build'],
+      new AbortController().signal,
+      MANAGED_BUILD_TIMEOUT_MS,
+    );
+    await vi.advanceTimersByTimeAsync(120000);
+    expect(kill).not.toHaveBeenCalled();
+    finish(0);
+    await expect(result).resolves.toBeUndefined();
+  });
+  it('still kills a genuinely stuck build at the finite browser build cap', async () => {
+    vi.useFakeTimers();
+
+    const { runtime, kill } = processFixture(new Promise(() => undefined));
+    const result = runtime
+      .command(
+        'node',
+        ['node_modules/vite/bin/vite.js', 'build'],
+        new AbortController().signal,
+        MANAGED_BUILD_TIMEOUT_MS,
+      )
+      .catch((error) => error);
+    await vi.advanceTimersByTimeAsync(MANAGED_BUILD_TIMEOUT_MS + 1);
     expect(await result).toMatchObject({ category: 'timeout', repairable: false });
     expect(kill).toHaveBeenCalled();
   });

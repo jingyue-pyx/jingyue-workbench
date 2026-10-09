@@ -1,5 +1,7 @@
 import { BATCH_FAILURE_REASONS } from './batch-failure';
 import { FAILURE_REASONS } from './failure-code';
+import { STOP_REASONS } from './stop-cause';
+import { MANAGED_MAX_REPAIRS } from './request-policy';
 
 /*
  * Only finite, public descriptions belong in saved-result presentation. Never
@@ -19,6 +21,7 @@ const stages: Record<string, string> = {
   idle: '准备',
 };
 const reasons: Record<string, string> = {
+  ...STOP_REASONS,
   ...BATCH_FAILURE_REASONS,
   ...FAILURE_REASONS,
   capability: '需求所需的后端能力尚未接入，尚未执行代码生成或编译',
@@ -47,9 +50,14 @@ export function parseOutcomeAnnotation(annotation: unknown) {
     return undefined;
   }
 
-  const match = /^managed-outcome:(failed|succeeded|unchanged|cancelled):([a-z]+):([a-z_]+):([0-2])$/.exec(annotation);
+  const match = /^managed-outcome:(failed|succeeded|unchanged|cancelled):([a-z]+):([a-z_]+):([0-9])$/.exec(annotation);
 
-  if (!match || !Object.hasOwn(stages, match[2]) || !Object.hasOwn(reasons, match[3])) {
+  if (
+    !match ||
+    Number(match[4]) > MANAGED_MAX_REPAIRS ||
+    !Object.hasOwn(stages, match[2]) ||
+    !Object.hasOwn(reasons, match[3])
+  ) {
     return undefined;
   }
 

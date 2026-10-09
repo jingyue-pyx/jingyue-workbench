@@ -1,9 +1,27 @@
 import { describe, expect, it } from 'vitest';
-import { editSource, inspectSource, instrumentSource } from './source';
+import { editSource, inspectSource, instrumentSource, stripGeneratedVisualMetadata } from './source';
 
 const path = '/home/project/src/App.tsx';
 const source =
   'export default function App() { return <main><h1 data-oid="title">原来的标题</h1><p data-oid="body" className="old">说明</p></main>; }';
+
+describe('model source without generated editor metadata', () => {
+  it('removes only injected markers while retaining exact surrounding application bytes', () => {
+    const original = 'export default function App(){return <button className="cta" onClick={() => 1}>Go</button>}';
+    const marked = original.replace(
+      'className',
+      'data-oid="jy-00000000-0000-4000-8000-000000000000" data-jingyue-source="/home/project/src/App.tsx" className',
+    );
+    expect(stripGeneratedVisualMetadata(marked)).toBe(original);
+    expect(stripGeneratedVisualMetadata(source)).toBe(source);
+    expect(instrumentSource(stripGeneratedVisualMetadata(marked), path)).toContain('data-jingyue-source');
+  });
+  it('does not alter text literals, dynamic/user attributes or broken source', () => {
+    const value = `const example = 'data-oid="jy-00000000-0000-4000-8000-000000000000"'; export const C=()=> <p data-oid="user-id" data-jingyue-source={path}>Text</p>`;
+    expect(stripGeneratedVisualMetadata(value)).toBe(value);
+    expect(stripGeneratedVisualMetadata('<p data-oid="')).toBe('<p data-oid="');
+  });
+});
 
 describe('Onlook source editing adapter', () => {
   it('adds locators only to native JSX and is idempotent', () => {

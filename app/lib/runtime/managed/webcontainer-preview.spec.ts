@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { WebContainer } from '@webcontainer/api';
 import { reloadPreview } from '@webcontainer/api/utils';
 import {
+  MANAGED_PREVIEW_MOUNT_TIMEOUT_MS,
   previewProbeScript,
   previewServerScript,
   waitForPreviewFrame,
@@ -62,6 +63,67 @@ afterEach(() => {
 });
 
 describe('preview verification handshake', () => {
+  it('runs the real probe through a slow mount instead of failing at fifteen seconds', async () => {
+    vi.useFakeTimers();
+
+    const postMessage = vi.fn();
+    const root = { children: [] as object[] };
+    const windowStub = { parent: { postMessage }, addEventListener: vi.fn() };
+    const documentStub = { querySelector: (selector: string) => (selector === '#root' ? root : null) };
+    new Function(
+      'window',
+      'document',
+      'location',
+      'setInterval',
+      'clearInterval',
+      previewProbeScript('probe-slow', 'https://workbench.test'),
+    )(
+      windowStub,
+      documentStub,
+      { href: 'https://preview.test/?__jingyue_attempt=probe-slow-1' },
+      setInterval,
+      clearInterval,
+    );
+    await vi.advanceTimersByTimeAsync(30000);
+    expect(postMessage.mock.calls.map(([message]) => message.type)).toEqual(['jingyue:runtime-ready']);
+    root.children.push({});
+    await vi.advanceTimersByTimeAsync(1700);
+    expect(postMessage).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        type: 'jingyue:runtime-check',
+        ok: true,
+        runId: 'probe-slow',
+        attempt: 'probe-slow-1',
+      }),
+      'https://workbench.test',
+    );
+    expect(vi.getTimerCount()).toBe(0);
+  });
+  it('the real probe reports an empty mount as inconclusive at the finite deadline', async () => {
+    vi.useFakeTimers();
+
+    const postMessage = vi.fn();
+    new Function(
+      'window',
+      'document',
+      'location',
+      'setInterval',
+      'clearInterval',
+      previewProbeScript('probe-empty', 'https://workbench.test'),
+    )(
+      { parent: { postMessage }, addEventListener: vi.fn() },
+      { querySelector: () => null },
+      { href: 'https://preview.test/?__jingyue_attempt=probe-empty-1' },
+      setInterval,
+      clearInterval,
+    );
+    await vi.advanceTimersByTimeAsync(MANAGED_PREVIEW_MOUNT_TIMEOUT_MS + 101);
+    expect(postMessage).toHaveBeenLastCalledWith(
+      expect.objectContaining({ type: 'jingyue:runtime-check', ok: false, kind: 'mount-timeout' }),
+      'https://workbench.test',
+    );
+    expect(vi.getTimerCount()).toBe(0);
+  });
   it('reconnects after a transport failure without reinstalling or rebuilding unchanged source', async () => {
     vi.useFakeTimers();
 
@@ -196,7 +258,7 @@ describe('preview verification handshake', () => {
         data: { ...base, type: 'jingyue:runtime-ready' },
       }),
     );
-    await vi.advanceTimersByTimeAsync(16000);
+    await vi.advanceTimersByTimeAsync(45000);
     expect(frame.src).toBe(url.href);
     expect(reloadPreview).not.toHaveBeenCalled();
     window.dispatchEvent(
@@ -207,6 +269,91 @@ describe('preview verification handshake', () => {
       }),
     );
     await expect(result).resolves.toBe('https://preview.example.test');
+    runtime.stop();
+  });
+  it('classifies a mount timeout as inconclusive and can recheck the same dev server without recompilation', async () => {
+    vi.useFakeTimers();
+
+    const runtime = fixture();
+    const result = runtime.verify(files, new AbortController().signal, vi.fn()).catch((error) => error);
+    await vi.advanceTimersByTimeAsync(1);
+
+    const frame = document.querySelector('iframe')!;
+    const send = (data: object) => {
+      const url = new URL(frame.src);
+      window.dispatchEvent(
+        new MessageEvent('message', {
+          source: frame.contentWindow!,
+          origin: url.origin,
+          data: {
+            type: 'jingyue:runtime-check',
+            runId: url.searchParams.get('__jingyue_check'),
+            attempt: url.searchParams.get('__jingyue_attempt'),
+            ...data,
+          },
+        }),
+      );
+    };
+    send({ ok: false, kind: 'mount-timeout', detail: 'untrusted arbitrary diagnostic' });
+    expect(await result).toMatchObject({ category: 'preview-network', repairable: false });
+
+    const commandCount = vi.mocked(runtime.command).mock.calls.length;
+    const retry = runtime.verify(files, new AbortController().signal, vi.fn());
+    await vi.advanceTimersByTimeAsync(1);
+    send({ ok: true });
+    await expect(retry).resolves.toBe('https://preview.example.test');
+    expect(vi.mocked(runtime.command).mock.calls).toHaveLength(commandCount);
+    runtime.stop();
+  });
+  it('still fails a real runtime exception immediately rather than treating it as slow mounting', async () => {
+    vi.useFakeTimers();
+
+    const runtime = fixture();
+    const result = runtime.verify(files, new AbortController().signal, vi.fn()).catch((error) => error);
+    await vi.advanceTimersByTimeAsync(1);
+
+    const frame = document.querySelector('iframe')!;
+    const url = new URL(frame.src);
+    window.dispatchEvent(
+      new MessageEvent('message', {
+        source: frame.contentWindow!,
+        origin: url.origin,
+        data: {
+          type: 'jingyue:runtime-check',
+          runId: url.searchParams.get('__jingyue_check'),
+          attempt: url.searchParams.get('__jingyue_attempt'),
+          ok: false,
+          kind: 'runtime',
+          detail: 'React is not defined',
+        },
+      }),
+    );
+    expect(await result).toMatchObject({ category: 'preview', repairable: true, message: 'React is not defined' });
+    runtime.stop();
+  });
+  it('keeps a finite deadline when a connected probe never sends a final check', async () => {
+    vi.useFakeTimers();
+
+    const runtime = fixture();
+    const result = runtime.verify(files, new AbortController().signal, vi.fn()).catch((error) => error);
+    await vi.advanceTimersByTimeAsync(1);
+
+    const frame = document.querySelector('iframe')!;
+    const url = new URL(frame.src);
+    window.dispatchEvent(
+      new MessageEvent('message', {
+        source: frame.contentWindow!,
+        origin: url.origin,
+        data: {
+          type: 'jingyue:runtime-ready',
+          runId: url.searchParams.get('__jingyue_check'),
+          attempt: url.searchParams.get('__jingyue_attempt'),
+        },
+      }),
+    );
+    await vi.advanceTimersByTimeAsync(MANAGED_PREVIEW_MOUNT_TIMEOUT_MS + 5001);
+    expect(await result).toMatchObject({ category: 'preview-network', repairable: false });
+    expect(reloadPreview).not.toHaveBeenCalled();
     runtime.stop();
   });
   it('retries only the connection, rejects an old attempt, and accepts the current handshake', async () => {

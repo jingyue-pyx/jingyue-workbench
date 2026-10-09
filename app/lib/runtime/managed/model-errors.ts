@@ -15,6 +15,10 @@ export const MODEL_FAILURES = {
     category: 'model-service',
     message: '模型服务暂不可用，尚未完成本次生成；已有源码保留，请稍后重试。',
   },
+  JINGYUE_MODEL_UNKNOWN: {
+    category: 'model-service',
+    message: '模型服务未完成请求，暂时无法确认原因；已有源码保留。',
+  },
 } as const;
 
 /** Never inspect or forward message, responseBody, request data, URLs or headers. */
@@ -75,7 +79,7 @@ function modelFailureDetail(error: unknown): { code: keyof typeof MODEL_FAILURES
     }
   }
 
-  return { code: 'JINGYUE_MODEL_UNAVAILABLE', reason: 'UNKNOWN' };
+  return { code: 'JINGYUE_MODEL_UNKNOWN', reason: 'UNKNOWN' };
 }
 
 export function modelFailureCode(error: unknown): keyof typeof MODEL_FAILURES {

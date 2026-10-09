@@ -1023,3 +1023,691 @@ exact test user. It prints only pass/fail metadata, not credentials.
   in this public browser acceptance. The public account is left signed in for
   user acceptance; do not claim the entire negative-path suite passed publicly.
   Standalone Netlify authentication remains out of scope.
+
+## 2026-10-06 — bounded recovery for oversized single files
+
+- The previous scheduler split a failed batch down to single files, then retried
+  the same overflowing file once. It had no executable module-extraction step.
+  The replacement keeps completed candidates and replans only that target into
+  1–4 new source modules/styles plus the original integration file, generated
+  separately. Existing and queued paths/configuration cannot be overwritten by
+  extraction. There are at most two extractions per task, no recursive child
+  extraction, and no increase to the existing request/token budgets.
+- Regression coverage includes successful extraction, invalid/colliding paths,
+  missing or unchanged integration, truncation inside an extracted child,
+  cancellation, concurrent editing and quota exhaustion. Truncated JSON remains
+  rejected and the normal candidate compile/preview gates remain in place.
+- Application tests: 777 passed; deployment tests: 132 passed; typecheck and
+  production build passed. The runtime bundle passed 124 offline packaged checks
+  on Linux / Node 22.23.3, with zero real model/database calls in those checks.
+- The user's original marketing-Agent prompt was tested against real Bailian
+  Qwen3 Coder Next in an isolated local workbench at port 9033. Plan, manifest
+  and three generation batches ended normally; generation batch outputs were
+  2649 / 1574 / 113 tokens. The project passed typecheck/build/preview. Changing
+  the goal to new-product launch and budget from 8000 to 50000 changed the
+  displayed timeline and allocation; the result expansion control worked.
+  This real run did not truncate; extraction itself has fault-injection evidence,
+  not a claim of a reproduced real-provider truncation on this run.
+- The first local attempt failed before generation with a model connection
+  timeout. IPv4-only process flags allowed the repeat to complete; no system or
+  cloud network configuration was changed. Local persistence uses a temporary
+  PGlite database, not production RDS. The original cloud project was untouched.
+  That local acceptance preceded the error-code recovery release below. Public
+  code deployment is now recorded below; authenticated public re-acceptance is
+  still pending and must not be inferred from the local example.
+
+## 2026-10-06 — error-code-directed recovery
+
+The scheduler now distinguishes recoverable transport failures from rejected
+requests instead of collapsing all failures into “page preparation failed”.
+
+| Failure | Handling |
+| --- | --- |
+| Network disconnect, HTTP 408/500/502/503/504, provider unavailable, missing stream completion | Retry only the current phase/file, at 500 ms then 1000 ms; discard incomplete text |
+| Model output length limit | Reduce batch scope, then bounded target-only module extraction; never apply partial JSON |
+| Invalid plan/manifest/file schema | Existing bounded schema correction with concrete validation issues |
+| Exact-edit mismatch | Complete-file fallback on the current snapshot, not fuzzy replacement |
+| Login expired, permission denied | Stop without retry; preserve drafts and explain required login/permission action |
+| Quota/rate limit, provider authentication/request rejection, policy stop, unknown failure | Stop without automatic resubmission; keep an explicit finite diagnostic and actionable notice |
+| Dependency/preview connection failures | Keep existing environment-specific bounded recovery; do not ask the model to rewrite working business code |
+
+Transport retries are capped at two per request and six across a coding task,
+remain inside the existing 32-call/160000-reserved-token budget, and traverse
+the authenticated gateway individually. SDK retries remain disabled. Conversation
+routing has at most two extra attempts, also gateway-counted. Cancelling aborts
+backoff immediately; source edits during backoff block stale retries. None of
+these changes raises daily quotas or modifies cloud credentials/resources.
+
+The saved result and diagnostic endpoint retain finite failure labels, never raw
+provider bodies, prompts, source, URLs or credentials. Recovered intermediate
+failures do not become failed conversation messages. Exhausted recovery is still
+reported honestly, without exposing internal error codes or claiming success.
+
+Fault-injection regression covers interrupted streams, HTTP/provider error
+classification, cancellation, shared retry budgets, source drift, candidate
+preservation, and safe user notices. Real provider and browser acceptance is
+recorded separately from these deterministic tests.
+
+Release verification:
+
+- 813 application tests and 133 deployment tests passed; TypeScript and the
+  production build passed. Changed-file lint has no errors (eight test-only
+  empty-stub warnings). Credential scan and 124 offline Linux Node 22 packaged
+  server checks passed. These tests include synthetic upstream failures, not
+  forced failures against the real provider.
+- Deployed the code-only package `jingyue-private-1Rvm9r.zip` to the existing
+  Hong Kong `jingyue-workbench` function using its ZIP upload page. No environment
+  variables, credentials, database schema, quotas, network access or resource
+  specifications were changed.
+- Package SHA-256: `84a541875f1dcbfb070816b4673e75d641e2ec8b824be11c6c08d444a2b0a15a`.
+- The public `/healthz` and `/login` returned 200 with release fingerprint
+  `4d7b5cdb13f1f3e70f4fdddc2ca5004f279f26803771c93c3d25a8cf08c860f0`;
+  unauthenticated `/api/projects` still returned 401.
+- Rollback package retained: `jingyue-private-Vv5OJy.zip`, prior public
+  fingerprint `07f1647a2b820f18e98e0ad1261fcbb2c832b57395967c41f850b3635f7201da`.
+- The public workbench browser session is expired. Post-deployment authenticated
+  generation, compilation, preview and publishing verification remain pending
+  login; deployment health checks alone do not constitute that acceptance.
+
+### 2026-10-06 — Recover malformed file JSON with an alternate single-file transport
+
+- Reported project: `aa803bd0-d4d6-42f7-a874-f71c6d504dfe`. The dedicated QA
+  account cannot read this other account's project. FC log retention is not
+  enabled, so the exact failed JSON/field cannot be retrospectively established.
+  No permissions were bypassed and no paid logging resource was enabled.
+- Confirmed recovery gap: the scheduler split batches and retried invalid JSON,
+  but still required the same escaped JSON file envelope on every correction.
+  Two malformed single-file responses therefore terminated without an alternate
+  transport. This is distinct from token truncation and from compilation errors.
+- After those bounded JSON corrections fail, one additional request returns the
+  complete literal source between per-request host-generated markers. The host
+  fixes the path and JSON-encodes the accepted source itself. Missing/repeated/
+  foreign markers, Markdown wrappers and partial transport responses are rejected.
+  No guessing missing JSON, executing response text, or combining partial chunks.
+- All requests remain charged to the existing task/account budget. Source-change
+  and cancellation guards, protected paths/configs, candidate preflight, build,
+  preview and prior-version protection remain intact. Source overflow uses the
+  existing bounded module decomposition, not unlimited retries.
+- Finite diagnostic labels now separate `patch_json`, `patch_schema`, and
+  `file_envelope`; no raw model text, source or credentials are logged.
+- Validation before release: 834 application tests and 133 deployment tests,
+  typecheck and production build passed. The opt-in `source-recovery-live.ts`
+  injected two invalid JSON responses then made ONE real Bailian request; the
+  recovered 7,238-character marketing form passed candidate preflight. This test
+  writes no user project and is not proof that all generated applications work.
+- The previous public release generated the user's exact marketing prompt in QA
+  project `70fc28a9-f7e4-47e9-a3ea-ac7d1e13bbae` and reached preview. That request
+  did not reproduce the malformed response; new-release public verification is
+  tracked separately and must not be inferred from this successful attempt.
+
+Public release verification:
+
+- Uploaded the code-only package `jingyue-private-2BVtg2.zip` to the existing
+  `jingyue-workbench` function. Package SHA-256:
+  `e1bfa6308214f54fc81763fdd1188efaf1782c93264a09786890ccd0226781e2`.
+  Public `/healthz` returned 200 with release fingerprint
+  `9cf19fa52a682f4c8e43957f1d7d69ebd21616469480426a3d21ff3b228041c3`.
+  No environment variables, credentials, resource specifications or quotas changed.
+  Rollback package `jingyue-private-1Rvm9r.zip` remains available.
+- Credential scan passed. Offline Linux Node 22 packaged-server validation passed
+  in two isolated mock-model runs: 132 baseline checks and 99 source-recovery
+  checks. Separate runs respect the gateway's per-minute limit; production limits
+  were not relaxed for testing.
+- Against the deployed public API, the opt-in fault-injection harness again
+  supplied two invalid JSON responses, then ONE actual Bailian call returned a
+  complete 12,833-character source file. Candidate preflight passed; no user project
+  was written. This verifies alternate transport recovery, not the unavailable
+  original failed response.
+- After reloading the new public client, QA project
+  `70fc28a9-f7e4-47e9-a3ea-ac7d1e13bbae` restored its saved source and preview.
+  A real follow-up request updated two components with explicit demo-data labels;
+  compilation and preview completed, and cloud save was confirmed by the UI.
+- The modified form accepted a budget of 8,000 and displayed `¥8,000.00` with
+  the demo-data label. A separate new-project request (`7d99ab13-51cb-4acf-a91b-5a69c93e2dd9`)
+  passed file-response validation but exhausted its two typecheck repairs. This
+  is retained as a failed acceptance case, not presented as a fully stable run.
+- An opt-in synthetic generation probe against the public API separately observed
+  output-length recovery, then TypeScript TS2724 for the nonexistent `FaTarget`
+  export in `react-icons/fa`. One model repair passed host typecheck. This probe
+  uses repository dependencies rather than a WebContainer and is not evidence of
+  the exact earlier browser failure or browser preview success.
+- Added browser-local finite command diagnostics (tool, exit code, TS error codes;
+  no raw source/identifiers/paths). Signal-style exits 130/134/137/139/143 now stop
+  as sandbox failures instead of causing blind model source repairs. No claim is
+  made that those exit codes caused the earlier case; its detailed log was absent.
+- Follow-up code-only release: `jingyue-private-gEJbSr.zip`, SHA-256
+  `d9ed78500f0f026d6f19d0763f12e4986acc8fd82332f1e904d6c632d63dee1c`,
+  public fingerprint `b0813047829f01c45733486eb582a03054aec4f224154d310f3b4a35a8905d56`.
+  Public health returned 200. Tests: 840 application, 133 deployment, typecheck,
+  production build, credential scan and 132 offline Linux Node 22 package checks
+  passed. Changed-file lint: zero errors, 19 existing/test no-op warnings.
+- A browser retry of the same failed QA project then exposed a distinct
+  `batch_missing` outcome: a required not-yet-created file was still omitted
+  after bounded correction. Extended the single-file framed-source recovery to
+  required-file omissions and explanation-only responses. Valid unchanged
+  existing files still skip; out-of-scope paths and protected files do not gain
+  write authority; unchanged split integration is still rejected.
+- The public fault-injection probe supplied two `batch_missing` responses, then
+  one actual model call recovered an 8,257-character file that passed preflight.
+  It wrote no user project. Deterministic regression now passes 843 application
+  and 133 deployment tests. Browser generation remains independently recorded.
+- Follow-up code-only release including required-file recovery:
+  `jingyue-private-gZPLvD.zip`, SHA-256
+  `74e5b228a53c4c2eaf9f5f2acdc28a3ba71bb1cf7738150aefacddecb1549b2f`.
+  Public health returned 200 with fingerprint
+  `87b11c5c1ced52de02fcdfe6e3783c6c18bd0f4af32504ad72a3284ee720b162`.
+  Typecheck, production build, credential scan, and offline Linux package checks
+  (132 baseline plus 99 source-recovery) passed. No configuration or quota change.
+- New QA project `d0a2a440-7030-40aa-acd7-60243ea91f3c` reached candidate typecheck
+  but exhausted repair on TS1110/TS1128/TS1005/TS1109, later TS1005. It did not
+  reach preview and remains a failed acceptance case. A local replay of synthetic
+  source before/after visual instrumentation passed host typecheck; this does not
+  prove the cause of that browser failure.
+- Additional compiler classification: browser-local diagnostics now contain only
+  finite source/dependency/other origins in addition to TS codes. Dependency
+  syntax errors trigger one bounded clean reinstall of the current runtime's
+  `node_modules` and recheck, without model source edits. Repeated failure stops.
+  JSX in `.ts` is rejected by candidate preflight rather than parsed as `.tsx`.
+- Code-only deployment `jingyue-private-Y9cicP.zip`, SHA-256
+  `80795d78278daa0bbbba9cb73dedb15bf67adb6eb476cbf8777323708ad81308`,
+  public fingerprint `c9e8292798aa397b7efda0506e9e2e5113f7515dbc1132087137cee75e9205d8`.
+  Public health 200; 847 application tests, 133 deployment tests, typecheck,
+  production build, credential scan, 132 baseline plus 99 source-mode offline
+  Linux Node 22 package checks passed. No environment/credential/quota changes.
+- The single-preview QA run `5da09a24-3c0b-4e30-9952-ea07cf599d05` reached
+  candidate typechecking but repeated TS2305 from source through two repairs.
+  It did not reach preview. This is a missing-export error, not the original
+  malformed-JSON failure; the finite log does not establish which export.
+- Compiler repair now supplies bounded, read-only evidence from the installed
+  `react-icons` declaration file when TS2305/TS2724 identifies that package.
+  Only a fixed public-package path is read; declarations are parsed, not run.
+  The model can select an actually available export rather than guess names.
+  This does not suppress typechecking or automatically rewrite user components.
+- Deployed code-only package `jingyue-private-AUGfhs.zip`, SHA-256
+  `cd22a0fd9403fba67bcea9b68bb9fd28b26eee1ad02c8731c2c028cd93f497f3`.
+  Public health returned 200 with fingerprint
+  `5e871f9483a7ffe4d7b36b593e40e6893126b9df6487b17929a136bf9f1ee3c5`.
+  Regression: 853 application and 133 deployment tests; typecheck, production
+  build, credential scan, offline Linux 132 baseline and 99 source-mode checks
+  passed. Fresh public browser acceptance is recorded separately below.
+- Fresh QA project `81d8cf38-0145-4542-8d32-f8d11051faec` submitted the exact
+  original marketing request against this client but stopped before generation
+  with the model limit notice. A single minimal authenticated diagnostic request
+  confirmed HTTP 429 / `ACCOUNT_RATE_LIMIT`, with no Retry-After header. The
+  gateway uses this account-store check for daily model limits (user or global);
+  it is distinct from the in-memory per-minute limiter. No quota was changed,
+  reset or bypassed. The new-project browser acceptance of this package remains
+  UNVERIFIED, and the previous TS2305 case remains an unresolved acceptance case
+  until the enriched repair path is exercised with real generation.
+- Evidence outside the repository: `jingyue-source-recovery-public-20261006.png`
+  records the earlier successful two-file change and budget interaction;
+  `jingyue-recovery-quota-check-20261006.png` records the latest quota blocker.
+  Do not substitute the earlier success for a pass of this latest new-project run.
+- Additional recovery fix: installation integrity now rejects zero/whitespace
+  declaration files and missing/empty explicit `react-icons` subpath entries.
+  These are dependency faults and trigger the existing bounded reinstall, not
+  model edits to business source. The real pinned package passes the check.
+- Transient gateway concurrency/minute limits now carry a finite `minute` header
+  and Retry-After, which the client waits for before at most two retries within
+  its existing task budget. Daily account/global limits carry `daily`, stop
+  without retries, and explain that changing the requirement will not help.
+  No quotas were increased, reset, bypassed, or exempted.
+- Code-only release `jingyue-private-mTZzKM.zip`, SHA-256
+  `da0d0ab49fcbe95f54c6b6134c2bb081c4f9c1192eff3558f34a82a68f72fcfe`,
+  deployed and health-verified with public fingerprint
+  `0ece258b128e71867b094fed416c2615adaa2c5919dcbd0206b015ca197a5e71`.
+  Verification: 867 application tests, 134 deployment tests, typecheck,
+  production build, credential scan, and offline Linux Node 22 package checks
+  (132 baseline plus 99 source-recovery) passed.
+- Public browser regression on the saved QA marketing project
+  `70fc28a9-f7e4-47e9-a3ea-ac7d1e13bbae` passed restore/install/typecheck/build/
+  preview; example form submission showed an 8,000-yuan result. A whole-page
+  reload restored source and preview again without model calls; empty submission
+  showed three field errors, then a valid 12,000-yuan submission showed the new
+  amount and demo label. Runtime form values reset on reload; this is source and
+  preview recovery, NOT business-data persistence. Screenshots outside the repo:
+  `jingyue-recovery-public-form-20261006.png` and
+  `jingyue-recovery-public-refresh-20261006.png`.
+- Fresh real-model generation and the unresolved TS2305 case are still UNVERIFIED
+  on this release because the daily allowance is exhausted. The no-model browser
+  regression and deterministic fault injection do not replace that acceptance.
+
+## 2026-10-08 — Context-aware conversation continuation (candidate, not deployed)
+
+- Root cause of the reported "继续再试试呢" failure: the retry shortcut did not
+  recognize this phrase, allowing intent classification to select preview even
+  though runtime startup had failed before source generation. Separately, model
+  requests previously retained only eight recent messages and single-file batches
+  omitted conversation history, so the original requirement could disappear.
+- Every managed model phase (intent, answer, plan, manifest, generate, repair)
+  now receives bounded current-project context: original and active task anchors,
+  selected earlier user requirements, recent dialogue, and the latest finite run
+  outcome. Current source and current diagnostics take precedence over history.
+  History truncation is explicit; this is not unlimited history or global memory.
+- Explicit retry phrases resume the latest recorded task instead of opening an
+  empty preview. "继续排查/解释" answers with context without modifying files.
+  Ambiguous continuation, pending plan confirmation, cancellation, negation and
+  quoted instructions do not silently grant permission to write source.
+- Regression covers the exact reported follow-up, history restored from saved
+  JSON, task anchors older than the recent-message window, all six request phases,
+  isolated project histories and a simulated startup-failure/retry lifecycle.
+  907 application tests, 134 deployment tests, typecheck and production build
+  passed. The lifecycle test uses a mocked runtime; it is not real browser or
+  provider acceptance and does not resolve the separate generation failures above.
+- Public release is pending: the Alibaba Cloud code console requires login again.
+  No credentials, quotas, schema, resource settings or public code changed during
+  this context-continuity fix. Prior release packages are retained for rollback.
+- Additional local live-model probe passed with ONE read-only Qwen Plus call:
+  after fourteen intervening discussion messages, "继续排查" correctly identified
+  the original portfolio requirement and the pre-generation browser-runtime
+  failure, without requesting the requirement again or creating a new plan.
+  The exact "继续再试试呢" phrase resumed the recorded task with zero classifier
+  calls. This uses synthetic history through the real candidate API/model; no
+  user project was created or modified, and no browser compilation was claimed.
+
+## 2026-10-08 — Repair scope and accidental cancellation (candidate)
+
+- Real Qwen Plus generation of the original portfolio query reproduced missing
+  shared types, a parent/child callback mismatch, and an explicitly non-nullable
+  component returning null. Its broad second repair rewrote unrelated modules
+  and exhausted the existing reserved-token budget after 22 model requests.
+  This is a failed baseline, not successful acceptance.
+- Repair scheduling now has an explicit operation and prioritizes current
+  diagnostics over the original creation request. A recheck replaces the active
+  diagnostics; previous failures remain audit history, not new repair tasks.
+  An unchanged repair manifest gets one bounded correction under the same
+  budget. A final no-op retains the original failed check instead of replacing
+  its cause with a generic no-change message. Each failed check reports finite
+  stage/reason metadata; no raw source, provider response, or credentials.
+- Relative code imports are checked before dependency installation. Missing
+  shared modules receive concrete repair feedback; binary assets/custom aliases
+  remain the compiler's responsibility. Module/props/nullable-return conventions
+  are explicit in generation instructions; compiler checks remain enabled.
+- Busy Enter/IME confirmation and duplicate submission no longer cancel a run.
+  Only the explicit stop action does; leaving a page, manual editing, replacement
+  and task deadlines retain separate finite causes. The deadline is reported as
+  a failure rather than an invented user cancellation. Limits remain unchanged.
+- Replaying the retained failed portfolio candidate through the corrected
+  scheduler and REAL Qwen Plus gateway took two requests and changed only the
+  offending modal. Full candidate host TypeScript checking passed. This proves
+  targeted repair, not WebContainer preview, visual quality, or public rollout.
+  Browser end-to-end validation and deployment are recorded separately; do not
+  treat the earlier public release as containing these local changes.
+- Browser replay on the candidate build generated and compiled the portfolio
+  candidate, but hit the shared eight-minute task deadline during the SECOND
+  (live-project) build. No compiler failure or user-stop was reported. The
+  already saved source subsequently passed build and preview reconnection
+  without model regeneration. This is a recovered run, not one-pass acceptance.
+- Once (and only once) a real candidate compiler has passed, the controller now
+  reserves at least three minutes for live promotion/preview finalization. The
+  original pre-compilation deadline, individual process deadlines, model/token
+  budgets and repair count stay bounded and unchanged. Fake-clock tests cover
+  success in that window and forced cancellation when that window is exhausted.
+- Manual preview checks found an additional generated-app quality issue:
+  category selection changed state but did not filter the list, and contact
+  placeholders were clickable empty anchors. Compiler/initial-mount success
+  therefore still does not establish task-specific interaction correctness.
+- The live entry additionally duplicated page modules as inline placeholders.
+  It explicitly described this as satisfying a "self-contained single file"
+  requirement. The batching contract now distinguishes response scope from
+  runtime module scope. New projects validate reachability of generated UI
+  modules from the HTML entry before compilation; unused modules trigger a
+  bounded repair. This graph check is not a substitute for clicking controls.
+- A real follow-up edit hit an 8,000-output-token cutoff, retried, then exhausted
+  its deadline during repair. It did NOT pass acceptance. Inspection of this
+  synthetic project's App.tsx found 7,227 of 15,686 characters were runtime
+  editor markers. The scheduler now strips only platform-generated JSX markers
+  in its private model/edit snapshot and applies exact edits to that same
+  canonical snapshot. Live conflict checks still use exact original bytes;
+  only changed files are returned and the writer restores visual-editor markers.
+  Application literals, custom IDs, handlers and unchanged live files stay intact.
+- Typecheck, 941 application tests and the production build passed after these
+  changes. The local acceptance server was restarted on the SAME database and
+  unchanged daily model quota. Public rollout remains pending Alibaba console
+  login; these local results must not be reported as public acceptance.
+- On that final local build the saved portfolio restored through dependency
+  installation, build and browser preview (`a60e3c33-73e4-4016-922f-f8a3252b6de6`).
+  The next REAL modification completed intent, plan and manifest, then hit the
+  unchanged daily 20-call quota BEFORE code generation. The earlier preview and
+  source remained available; no quota reset or account substitution was used.
+  Therefore the marker-free generation fix still needs live completion testing.
+  The release additionally passed 135 deployment tests and offline Linux Node 22
+  verification (132 standard checks + 99 source-recovery checks). These checks
+  used mocks and are not a substitute for the blocked real-model acceptance.
+
+## 2026-10-08 — Public rollout and daily-quota configuration
+
+- Deployed `jingyue-private-yDTy0d.zip` (SHA-256
+  `f7e84828bcf6ede4f0d6942ed8aae26825b3638abb1c9b54e000889707914b33`).
+  Public `/healthz` returned 200 with release fingerprint
+  `25669485b54c3772846e045bc82e8aa38b3dc1dc5b40e5263b232fdcf71bc083`;
+  unauthenticated `/api/models` still returned 401. The preceding candidate
+  context, cancellation, repair-scope and marker-removal fixes are now deployed.
+- At the user's explicit request, both `JINGYUE_USER_DAILY_REQUESTS` and
+  `JINGYUE_GLOBAL_DAILY_REQUESTS` were set to `0` in the existing public function
+  and read back after saving. Only these daily counters support unlimited mode.
+  Authentication, account capacity, login anti-abuse, short-term rate/concurrency
+  limits and finite per-task model/token/retry/runtime budgets remain enabled.
+  No counters, accounts, saved projects, credentials or other settings were
+  cleared or changed. Model usage continues to incur provider charges.
+- Verified 138 deployment tests before the final blank-value guard, then 23
+  focused security/account tests with the guard; final package credential scan
+  and 132 offline Linux Node 22 checks passed. The application build is the
+  previously verified 941-test candidate. Restore positive daily limits BEFORE
+  rolling back to the previous release, which does not accept zero values.
+- A real public API probe using the existing dedicated QA account passed with
+  ONE read-only Qwen Plus call. Fourteen intervening messages did not lose the
+  original portfolio request or its pre-generation runtime-startup failure.
+  Explicit retry resolved the original task without a classifier/model call.
+  This probe used synthetic history, changed no project and is not browser
+  generation/compilation/preview acceptance; that run is recorded separately.
+- Fresh public browser project `0d883001-0560-4d71-9d3b-2550d62412dd`
+  used the exact portfolio request. Chrome already held the user's existing
+  account, so this was a separate new test project in that session; it was NOT
+  the dedicated QA account and no prior user project was changed. The first run
+  (`3c2a1260-c83e-4364-aa1b-705b39cfe06c`) entered bounded repair, then passed
+  installation and typechecking but timed out in candidate build. Finite logs
+  identify `building/timeout`, not user cancellation or a daily model limit.
+  No candidate was promoted. Native browser inspection showed the execution
+  tab was backgrounded; this is a possible scheduling factor, not established
+  root cause. A foreground continuation is a separate acceptance attempt.
+- Foreground continuation `c4abbabb-2649-42ee-9bb1-a7d95590bf56` correctly
+  resolved the exact follow-up "继续再试试呢" to the original portfolio request,
+  rather than taking the empty-source preview shortcut. It nevertheless failed
+  in repair (`repairing/compile`, attempt 1), before promotion or preview.
+  The public UI describes this as a candidate syntax failure; the finite log
+  alone does not identify the exact offending source. Thus neither public
+  generation attempt passes end-to-end acceptance. Do not attribute this second
+  failure to background scheduling or claim that removing daily quotas fixes it.
+  Evidence outside the repository: `jingyue-public-retest-20261008.png`.
+
+## 2026-10-08 — Continued generation repair (not a status-only handoff)
+
+- Live public-model diagnosis reproduced an undeclared router dependency. The
+  repair planner then unnecessarily selected six files. A pure missing-package
+  diagnosis is now recomputed against the candidate and restricted to
+  `package.json`; mixed local-module errors still use normal planning.
+- Batch scheduling places shared modules and leaves before App/main integration.
+  Complete-file syntax is checked before retention, with bounded correction of
+  only the failing file. Bad syntax never becomes the input for later batches.
+- A Vite worker timeout gets one unchanged build retry, not an AI source repair.
+  Cancellation, real compiler errors, task deadline and retry limits are retained.
+  Timeout logs contain only tool category, timeout, output-present flag and page
+  visibility, never source, raw output or credentials.
+- A dedicated-account real Qwen Plus run used the original portfolio requirement:
+  9 calls, one TS2322 component-contract repair, then actual candidate dependency
+  installation, TypeScript and Vite build passed. This diagnostic uses the public
+  model gateway but a host compiler; it is NOT browser-preview acceptance.
+- 951 application tests, 138 deployment tests, typecheck, production build,
+  artifact credential scan and 132 offline Linux Node 22 checks passed.
+- Deployed `jingyue-private-JRHlPd.zip`, SHA-256
+  `81345264d9f6c388dd5b9c2966a7bf00f85391bad0bf1ea72b997b5c1d397784`.
+  Public health returned 200 with release
+  `a5ec3d1bd4738892417783d72c94db925fa577d191228e759a97445b3b3bf339`;
+  anonymous model access still returned 401. No environment/database changes.
+  Public browser continuation is being tested separately before acceptance.
+- Public continuation `2e99fc6f-d9d8-45b9-8949-764ff3abf4b3` reached
+  installation and typechecking, repaired TS2322/TS2304, then was interrupted
+  during build at exactly the shared eight-minute task deadline. This was not
+  user cancellation or proof of a Vite worker timeout. It did not pass acceptance.
+- Generation retains its eight-minute model allowance and existing call/token/
+  repair limits. Candidate installation/typecheck/build now has a separate,
+  cumulative six-minute allowance across attempts; a repair cannot reset it.
+  Only a successfully compiled candidate receives the existing finalization
+  reserve. Fake-clock tests cover both independent and cumulative limits.
+- Explicit continuation can restore the last complete candidate and recheck it
+  before calling the model. Account/project-scoped metadata binds the task,
+  approved plan, live-source hash and candidate hash. Changed tasks, manual
+  edits, partial batches, old checkpoints and corrupt metadata do not resume
+  automatically. Compilation and preview gates are still required.
+- Final regression: 957 application tests, typecheck, production build,
+  credential scan and 132 offline Linux Node 22 release checks passed; the
+  preceding 138 deployment tests remain applicable (no deployment logic changed).
+- Deployed `jingyue-private-cfwQ3p.zip`, SHA-256
+  `46364986e2475f6b1f7beeae65374fcc9a55b91bcdc204f442e83ae00c1de29e`.
+  Public health returned 200 with release
+  `b032f1aa37182807db8e822cf548038c3018628506ca7b63c09056f4525b9afd`;
+  anonymous model access remained 401. No environment/database changes.
+  Real public continuation of the same portfolio request remains under test;
+  the previous legacy checkpoint cannot be reused without its binding metadata.
+- On that release the original portfolio requirement passed real public-browser
+  candidate and live installation, typecheck, build and preview. Navigation,
+  six-to-two category filtering and project-detail open/close were exercised.
+  This is one successful generation, not a blanket stability claim.
+- A subsequent real contact-form edit (`3ad93a99-3fa3-4541-9a69-aee80af439b1`)
+  passed typecheck but both candidate builds hit the 90-second command cap.
+  A fresh restore of unchanged, previously validated source failed the same way.
+  Direct diagnostic builds of this synthetic project then completed: 117 seconds
+  without PostCSS, and 119 seconds WITH the original complete PostCSS/Tailwind
+  configuration (about 134 seconds including process startup). Thus this
+  reproduction demonstrates a too-short build deadline, not broken source or
+  proof of a PostCSS deadlock. No diagnostic configuration was saved to source.
+- Browser Vite builds now have a finite 180-second cap and one unchanged retry,
+  still within the cumulative candidate/task limits. Successful candidate
+  finalization receives at least four minutes for live build and preview.
+  Model call/token limits and compile/style/preview checks remain unchanged.
+  Build timing telemetry records only duration and candidate/live classification.
+  Fake-clock tests cover a 120-second successful build and a genuinely stuck
+  build stopped at the hard cap. These fixes require a new public deployment
+  and continuation/refresh acceptance, recorded below when verified.
+- Final artifact regression: 959 application tests (72 files), typecheck,
+  production build, credential scan and 132 offline Linux Node 22 checks passed.
+  Deployed `jingyue-private-26zKNR.zip`, SHA-256
+  `3e1043730f06913e4c3f56c78c13570d39bf352e0661c9dce87f4d06d1ff6387`.
+  Public health returned 200 with release
+  `1ab3fc7ff5462a6ad777f09332be753fbf3cf0406977497d3aa1167948398b1e`.
+  No environment, account, quota or database settings changed in this deployment.
+- Public live-source rebuild on this release completed in 57,421 ms, but its
+  automatic preview check failed; starting the same saved server script manually
+  rendered the app. This is NOT a passed automatic restore and remains under
+  investigation. Added finite preview failure/exit classifications and preserved
+  internal exception codes on restore, without logging raw exceptions or source.
+- Explicit continuation exposed a separate snapshot replay bug: unchanged
+  `package-lock.json` was included in the reconstructed model patch and correctly
+  rejected by the path guard. Replay now includes only changed files. Regression
+  tests prove an unchanged lock is preserved and a changed lock is still refused,
+  before candidate compilation or live writes; no path guard was weakened.
+- Regressions with snapshot replay fix: 961 application tests, typecheck,
+  production build, credential scan and 132 offline Linux checks passed.
+  Deployed `jingyue-private-F51IyL.zip`, SHA-256
+  `7bde175503f7d4c5a15f91dd215931d16e236b7535545d967bb0bcf3a1df9d25`.
+  Public health returned 200 with release
+  `699af3c0121f0fdbbac4ad7aa349a657307cc2eb809967e3a18ff97275e747de`.
+  Automatic public restore/continuation is being checked on this exact package.
+- On `699af3c…`, public automatic restore completed its live build in 47,153 ms
+  and reached the real preview without manual server startup. Anonymous model
+  access remained 401. Explicit “继续再试试呢” then retained the prior contact-form
+  task and compiled its recovered candidate in 66,168 ms without the previous
+  unchanged-lockfile rejection. Final live-preview and interaction checks are
+  still pending; the earlier intermittent preview failure is not considered
+  disproved by this single successful restore.
+- The recovered contact-form edit subsequently completed the live build in
+  69,917 ms and automatically reached preview. Browser interaction checks passed:
+  three empty-field messages; an invalid email rejected; a valid synthetic entry
+  produced the explicit demo-only success message and retained entered content.
+  Existing six-item gallery filtering to two development items and opening/
+  closing project details also passed. No email was sent (the generated form is
+  client-only). Whole-workbench refresh of the newly saved source is under test.
+- Whole-workbench refresh then completed its build in 77,257 ms and automatically
+  opened the preview. The new demo disclaimer and all three required-field errors
+  remained present after refresh. Project `0d883001-0560-4d71-9d3b-2550d62412dd`
+  therefore passes this specific continuation, interaction and source-restoration
+  test. Synthetic form entry is ordinary in-memory demo state, not a claim of
+  business-data persistence. Evidence: `jingyue-public-form-pass-20261008.jpg`
+  outside the repository. Browser tests used the existing user session without
+  logging it out; the earlier isolated API test used the dedicated QA account.
+- A fresh public run of the user's exact marketing-Agent requirement on the same
+  release did NOT pass: `84abea03-5e06-4f02-9a81-3fba5ed33e41`, run
+  `2d1b05d9-a029-4050-ba29-d6b0917db498`. After one preflight correction, actual
+  typechecking reported TS2345/TS7006; repair removed TS7006 but TS2345 remained.
+  Its candidate was not promoted. The successful portfolio case does not count
+  as acceptance of this marketing case.
+- Read-only follow-up exposed a diagnostic context gap: only the finite outcome
+  was sent, not the actual latest check. Answers can now use bounded/redacted
+  diagnostics only when their run id matches this conversation's latest outcome;
+  stale/cross-run context is rejected and candidate/live status is explicit.
+  Actual compiler failures are also inspectable in the existing local runtime
+  terminal; server/console telemetry remains finite and never receives raw text.
+- 966 application tests, typecheck, production build, credential scan and 132
+  offline Linux checks passed. Deployed `jingyue-private-IEN5Kr.zip`, SHA-256
+  `e07d34f4e641aae25955c26891ea62c53c47f2710b6cd5b1d88339dde983a6ad`;
+  public health returned 200 with release
+  `710d801df0e2e8b086b3419c0dca41c245360f234b1472f5a9a1ad23e43fb14c`.
+  This improves diagnosis, not a claim that the remaining marketing type error
+  is repaired. Continuation of that same retained candidate follows.
+- The continued marketing candidate exposed the actual error:
+  `MarketingForm.tsx(26,17)` passed `(prev: string[]) => string[]` where a callback
+  required a `string[]` value. Annotating the updater parameter fixed TS7006 but
+  could not fix TS2345. Read-only follow-up on `710d801d…` now correctly identified
+  the exact location and mismatch from this run's diagnostic, without code writes.
+- An ineffective repair response also stopped the outer loop early. It now
+  receives correction within the remaining two-repair limit while preserving
+  the original diagnostic. No retry budget is reset and no unchanged response
+  can clear a failed compile. Compiler-observed updater/value errors include
+  bounded contract-repair guidance; source is never automatically cast or edited.
+- 972 application tests, typecheck, production build, 50 targeted deployment
+  tests, credential scan and 132 offline Linux checks passed. Package
+  `jingyue-private-3ZuGyD.zip`, SHA-256
+  `e1576a4ab1ab8346d3f8edbae9fdc13fa74a4a3b3c319978ba8d4914096e30ba`,
+  release `a114ced3b8c696969aa46582d3ca8874faea29ed30a2d6e6459295c3d4283bd2`.
+  Public continuation of the retained marketing candidate remains the acceptance
+  gate; offline checks alone do not establish that it has been repaired.
+- Public health confirmed `a114ced3…` (200). The same marketing candidate was
+  resumed by “继续再试试呢”, run `c0277b84-0f45-41e8-993c-d152cdfbc4ca`.
+  Its actual TS2345 was observed again, then the model's repair passed strict
+  typechecking and the candidate build (59,998 ms). This is an actual correction,
+  not a cast/disabled check or a replacement project. Live preview follows.
+- Marketing continuation passed live build (61,462 ms), automatic preview and
+  cloud source save. The actual browser accepted an edited goal, toggled a second
+  audience and changed the budget slider. Clicking Generate added a clearly
+  marked example proposal including the entered goal/audiences. UI testing also
+  found missing required-field validation (an empty goal produced a proposal),
+  so this is not claimed as complete UX acceptance. A real follow-up code-edit
+  request now adds blank/whitespace/audience validation and explicit budget
+  display, keeping the existing modules and demo-only scope.
+- First follow-up compiled (candidate 42,029 ms/live 66,589 ms), but clicking
+  revealed a semantic gap: the form expected an error prop while its parent
+  merely returned on invalid inputs. The app no longer added an invalid proposal
+  but displayed no feedback. This was not marked a UX pass. A second targeted
+  real-model edit connected the error state. Run
+  `f16b4668-4084-4d97-9719-e3064ed84f3a` initially produced TS2322, then automatic
+  repair passed strict typechecking and candidate build (119,984 ms) without
+  manual source modification. Final preview/interaction verification follows.
+- Second follow-up passed live build (90,168 ms) and automatic preview. Clicking
+  confirmed: whitespace goal plus no audience is rejected with visible feedback,
+  no-audience-only is rejected, invalid submissions preserve the two example
+  proposals, and valid submission clears feedback/adds exactly one proposal with
+  the actual goal, selected audience and 2,000-yuan budget. Everything remains
+  labelled example data. Screenshot: `jingyue-public-marketing-pass-20261008.jpg`
+  outside this repository. Whole-page source recovery and a fresh unassisted
+  generation of the original marketing query are now being tested.
+- Whole-page marketing recovery built successfully (155,824 ms) but failed the
+  old 15-second mount probe. Fresh original-query project
+  `f05d6470-1ba6-40f3-b655-c55cc0794ecd` generated and compiled without source
+  errors (candidate 115,036 ms/live 99,319 ms), then reproduced that same probe
+  failure. QA explicitly stopped the old client's inappropriate model repair;
+  this cancellation is operator-driven, not an unexplained system stop. Source
+  had already been validated and saved. Neither run is claimed as a preview pass.
+- Preview verification now allows a finite 60-second dev-module mount window;
+  no mounted root without an observed exception is inconclusive infrastructure
+  failure, not repairable source evidence. It preserves the dev server for a
+  same-source recheck. Real runtime/overlay errors still fail immediately, and
+  success still requires the bound frame/run/attempt plus actual root content.
+  Probe-execution tests cover a 30-second delayed mount, a never-mounting page,
+  host deadlines, real runtime errors, cancellation and reuse without rebuilding.
+  All 977 application tests and typecheck passed; final package verification and
+  public source-restoration checks are in progress.
+- Final preview-fix package passed production build, credential scan and 132
+  offline Linux checks. Artifact `jingyue-private-pzFEKM.zip`, SHA-256
+  `c89263c9d68daf9a8a6b7a820df06451595c74a6f4f684faabdad67ed7c62019`;
+  release `5a423913bb424f0eca92db5029e0f0578ea29a67fdd7b4cba8d7bb023e6d9de5`.
+  Code-only upload submitted; public fingerprint and real refresh results follow.
+- Public health confirmed `5a423913…` (200), with anonymous model access still
+  denied (401). Both saved marketing projects automatically restored into real
+  previews after whole-page reload. Fresh-query project restore built in 67,414
+  ms; the repaired form project restored in 85,907 ms. The latter again rejected
+  whitespace goals with visible feedback and produced a proposal containing the
+  edited goal/audience/2,000-yuan budget on valid submission. This validates source
+  recovery, not persistence of the generated app's in-memory form data.
+- Fresh-query visual/interaction QA confirmed styled controls, audience toggles
+  and budget allocation, but found missing demo disclosure and unsupported
+  performance guarantees. A real request to fix these, while preserving the
+  budget/buttons, was misrouted to read-only explanation: a broad negation regex
+  treated “不要改预算、受众和生成/重置按钮” as a veto on the entire edit. The
+  routing patch distinguishes explicit whole-task no-code instructions from local
+  preservation constraints; ambiguous scope still goes to model classification,
+  with the full original request. The exact regression and existing read-only
+  boundaries pass targeted tests; public replay remains required.
+- Scoped-intent repair passed 988 application tests, typecheck, production build,
+  credential scan and 132 offline Linux checks. Code-only package
+  `jingyue-private-aQuUtI.zip`, SHA-256
+  `715a29c4eee9ba1d685456ead2abbee4c99b26d4039f070a91839ad8ba919f8a`,
+  release `108b764d677f79a972635b259739d3726775b687f5a804b4213ee4b7faa057df`.
+  Submitted for public deployment; no environment/database/auth configuration
+  changed. Exact-query public replay follows rather than inferring behavior from
+  mocked classifier tests.
+- Public fingerprint confirmed `108b764d…` (200), anonymous model access 401.
+  Fresh marketing project restored automatically again on this release (76,239
+  ms live build, actual preview visible). Re-submitted the exact previously
+  misrouted scoped-edit request in the same project for real-model verification.
+- Exact scoped-edit replay now entered planning/generation rather than read-only
+  explanation, then passed candidate typecheck/build (88,194 ms). No manually
+  patched generated files, no weakened compiler settings and no altered query.
+  Live promotion/preview and the preserved-controls UI checks remain pending.
+- Scoped-edit replay also passed live build (82,257 ms), automatic preview and
+  cloud source save. Only `src/App.tsx` and
+  `src/components/CampaignPlanDisplay.tsx` were marked changed in the file tree;
+  the form component remained unchanged. Both requested demo disclosures are
+  visible and unsupported CTR/CPL guarantees are absent. Actual clicks verified
+  changed goal, Z-generation + newlywed audiences, a 1-wanyuan budget displayed
+  in the proposal, then Reset restoring the original goal/audience/50-wanyuan
+  budget. Screenshot `jingyue-public-marketing-intent-pass-20261008.jpg` is saved
+  outside Git. One final whole-page reload of this updated source is underway.
+- Final updated-source reload passed live build (97,798 ms) and actual preview
+  mounting. Both demo disclosures and the edited strategy copy survived. Goal
+  edits, audience selection and Generate were clicked again successfully after
+  reload. Budget keyboard automation timed out at the browser-control layer in
+  this final repeat; its prior 1-wanyuan and Reset checks passed before reload,
+  so this repeat is not claimed as an additional keyboard pass. Final screenshot:
+  `jingyue-public-final-pass-20261008.jpg` outside Git. Browser-sandbox refresh
+  still reinstalls/rebuilds and is slow; these finite cases do not establish that
+  every future generated project will succeed first try. No standalone Netlify
+  publish was performed in this repair cycle.
+
+### 2026-10-09: six managed repair rounds
+
+- Per user request, the default managed-task repair ceiling is six (previously
+  two), excluding the initial generation. Planning, generation and compiler
+  failures still share the existing bounded task; this is not a separate budget
+  for each error category or a guarantee of six model calls.
+- Client run state, saved outcome annotations, request correlation and the
+  server diagnostic endpoint accept rounds 0–6; older outcomes remain readable.
+  Local OpenCode task instructions use the same ceiling. Public OpenCode/cloud
+  sandbox capabilities are not enabled by this change.
+- The 32-call / 160,000-reserved-token task budgets, finite deadlines, explicit
+  cancellation, authentication and unchanged-source/unchanged-error stop guards
+  remain in force and may stop a run before round six. Invalid candidates still
+  cannot replace current source or preview before verification.
+- Regression coverage includes a third repair after two generation failures,
+  success on the sixth repair, exhaustion after exactly six repairs, and finite
+  logging/persisted outcomes without source or credential leakage. Public
+  release verification is recorded separately after actual deployment.
+- Release validation passed: 992 application tests, typecheck, production build,
+  28 gateway/diagnostic tests, credential scan and 132 offline Linux checks.
+  Code-only package `jingyue-private-daXad8.zip`, SHA-256
+  `d6f09240376a8fb99e35352e72ccac1871a2162bff7654d74bf74384c8c47131`;
+  release `d9772c1fcea4e0a93b7fbec5f0e51ce75487a0b2d5911b3fb4b9324b28dbd562`.
+  Public `/healthz` returned 200 with that exact fingerprint; anonymous model
+  access remains 401. No environment/database/auth configuration was changed.
+  Existing open clients must reload to use the new repair ceiling; deployment
+  does not automatically restart already-failed tasks.
+- Public continuation of original failed project
+  `844a76b7-63a9-4e72-bf37-6995c3556e0c` loaded `Header-yWQRMDgT.js` and recovered
+  its candidate instead of regenerating the request. Run
+  `d416f5dc-0ba3-4935-b446-c49513c35159` reproduced TS2305 (the nonexistent
+  `react-icons/fi` export `FiSparkles`), then the real model repaired it.
+  Candidate typecheck/build passed (14,888 ms build), final live build passed
+  (15,622 ms), and the actual marketing preview and cloud-saved status appeared.
+  Screenshot `jingyue-six-repairs-public-20261009.jpg` is outside Git. This is a
+  candidate-continuation/build/preview pass, not a new from-zero generation,
+  six forced real-model failures, or a complete visual/business acceptance.

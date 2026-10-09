@@ -46,9 +46,30 @@ try {
         // Check these documented file shapes without loading dependency code.
         let found = false;
         for (const entry of [target, target + '.d.ts', resolve(target, 'index.d.ts')]) {
-          try { if ((await stat(entry)).isFile()) { found = true; break; } } catch {}
+          try {
+            const info = await stat(entry);
+            if (info.isFile() && info.size > 0 && (await readFile(entry, 'utf8')).trim()) { found = true; break; }
+          } catch {}
         }
         if (!found) throw new Error();
+      }
+      // The icon package has separate declaration/runtime entries for each
+      // family. A healthy root declaration says nothing about react-icons/fa.
+      // Validate its explicit shipped files without evaluating package code.
+      if (metadata.name === 'react-icons') {
+        const packageRoot = resolve(path);
+        for (const target of Object.values(metadata.exports || {})) {
+          if (!target || typeof target !== 'object') continue;
+          for (const key of ['types', 'import', 'require']) {
+            const file = target[key];
+            if (typeof file !== 'string' || file.includes('*')) continue;
+            if (!file.startsWith('./') || file.includes('\\\\') || file.split('/').includes('..')) throw new Error();
+            const entry = resolve(path, file);
+            if (!entry.startsWith(packageRoot + sep)) throw new Error();
+            const info = await stat(entry);
+            if (!info.isFile() || info.size === 0 || !(await readFile(entry, 'utf8')).trim()) throw new Error();
+          }
+        }
       }
     } catch { failures.add(path); }
   }

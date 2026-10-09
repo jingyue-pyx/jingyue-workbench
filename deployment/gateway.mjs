@@ -98,6 +98,7 @@ export async function createGateway({
 
   const server = createServer(async (req, res) => {
     let counted = false;
+    let checkingModelQuota = false;
     const controller = new AbortController();
     let timer;
     const finish = () => {
@@ -317,11 +318,15 @@ export async function createGateway({
         }
         if (Date.now() - modelWindow.at > 60000) modelWindow = { at: Date.now(), count: 0 };
         if (activeCalls >= 2 || modelWindow.count >= 10)
-          return send(429, { error: 'Private preview model request limit reached' }, { 'Retry-After': '60' });
+          return send(429, { error: 'Private preview model request limit reached' }, { 'Retry-After': '60', 'X-Jingyue-Model-Limit': 'minute' });
         activeCalls++;
         counted = true;
         modelWindow.count++;
-        if (accountUser) await accountStore.allowModel(accountUser);
+        if (accountUser) {
+          checkingModelQuota = true;
+          await accountStore.allowModel(accountUser);
+          checkingModelQuota = false;
+        }
         body = JSON.stringify(data);
       }
       if (!isApi && (req.method === 'GET' || req.method === 'HEAD')) {
@@ -379,7 +384,9 @@ export async function createGateway({
       await pipeline(Readable.fromWeb(response.body), res);
     } catch (error) {
       if (error instanceof AccountError && !res.headersSent)
-        return send(error.status, { error: { code: error.code, message: error.message } });
+        return send(error.status, { error: { code: error.code, message: error.message } },
+          error.code === 'ACCOUNT_RATE_LIMIT' && checkingModelQuota
+            ? { 'X-Jingyue-Model-Limit': 'daily' } : {});
       report('request_failed', error);
       if (!res.headersSent) send(500, { error: 'Request failed; please retry' });
       else res.destroy();

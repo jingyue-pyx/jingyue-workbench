@@ -21,7 +21,7 @@ import {
   type SourceFiles,
 } from './protocol';
 import { PlanReviewGate, validatePlanAdjustment } from './plan-review';
-import { reportModelBatch, reportRuntime, runMessage } from './presentation';
+import { reportModelBatch, reportRepairCheck, reportRuntime, runMessage } from './presentation';
 import { toast } from 'react-toastify';
 import { outcomeAnnotation } from './conversation';
 import { runActivity, recordWrittenFile } from './activity';
@@ -29,6 +29,10 @@ import { compileCandidate } from './candidate-workspace';
 import { createBatchedModel } from './file-batches';
 import { localAgentEngine, openCodeRequest } from './opencode-client';
 import { previewAppAuthEnabled } from '~/lib/runtime/app-auth/bridge';
+import type { StopCause } from './stop-cause';
+import { candidateContext, restoreCandidate, type CandidateResume } from './candidate-recovery';
+import { failureCode } from './failure-code';
+import { MANAGED_MAX_REPAIRS } from './request-policy';
 
 const planReview = new PlanReviewGate();
 export const planReviewReady = atom(false);
@@ -72,7 +76,7 @@ export const runState = atom<RunState>({
   phase: 'idle',
   detail: '',
   attempt: 0,
-  maxRepairs: 2,
+  maxRepairs: MANAGED_MAX_REPAIRS,
   events: [],
   errors: [],
   changed: [],
@@ -85,11 +89,28 @@ const recordRuntimeOutput = (output: string) => {
   if (!terminalPhase(state.phase) && /[\p{L}\p{N}]{3}/u.test(output)) {
     runState.set({ ...state, detail: safeDiagnostic(output).slice(-1800) });
   }
+
+  if (output.startsWith('[类型检查诊断]\n')) {
+    writeLocalDiagnostic(output);
+  }
 };
+
+function writeLocalDiagnostic(output: string) {
+  try {
+    const text = safeDiagnostic(output)
+      .replace(/\x1b\][\s\S]*?(?:\x07|\x1b\\)/g, '')
+      .replace(/[\x00-\x08\x0b\x0c\x0e-\x1f]/g, '');
+    workbenchStore.boltTerminal.terminal?.write('\r\n' + text.replace(/\r?\n/g, '\r\n') + '\r\n');
+  } catch {
+    // A disposed UI terminal cannot change the task result.
+  }
+}
+
 const runtime = new WebContainerRuntime(webcontainer, recordRuntimeOutput);
 let controller: ManagedRunController | undefined;
 let restoreAbort: AbortController | undefined;
 let stopReason = '';
+let restoreStopCause: StopCause | undefined;
 const invalidateVerifiedSource = () => {
   const state = runState.get();
 
@@ -158,11 +179,12 @@ function prepareSource(path: string, content: string, root: string) {
   return content;
 }
 
-export function stopManagedRun(reason = '任务已停止，当前草稿保留。') {
+export function stopManagedRun(reason = '任务已停止，当前草稿保留。', cause: StopCause = 'user_stop') {
   stopReason = reason;
-  controller?.cancel(reason);
+  controller?.cancel(reason, cause);
 
-  if (restoreAbort) {
+  if (restoreAbort && !restoreAbort.signal.aborted) {
+    restoreStopCause = cause;
     restoreAbort.abort(new RunError(reason));
     runtime.stop();
   } else if (!controller) {
@@ -194,6 +216,7 @@ export async function runManagedTask(
     provider: string;
     history?: Message[];
     reviewPlan?: boolean;
+    resumeCandidate?: boolean;
     saveDraft?: () => Promise<void>;
     record: (message: Message) => Promise<void>;
   },
@@ -213,6 +236,24 @@ export async function runManagedTask(
     }
 
     const project = chatId.get() || 'new';
+    let recovered: CandidateResume | undefined;
+
+    if (options.resumeCandidate) {
+      try {
+        recovered = await restoreCandidate(
+          task,
+          captureSources(),
+          await checkpoint(project, 'candidate'),
+          await checkpoint(project, 'candidate-context'),
+        );
+      } catch {
+        /*
+         * An unavailable recovery store must not grant approval or restore
+         * unverified data. The normal checkpoint/write guards still apply.
+         */
+      }
+    }
+
     const appAuthEnabled = !!currentAccount && (await previewAppAuthEnabled(project, currentAccount.id));
     const revision = workbenchStore.manualEditVersion;
     const engine = await localAgentEngine(options.model);
@@ -253,12 +294,17 @@ export async function runManagedTask(
         checkpoint: async (files) => {
           await checkpoint(project, 'before', files);
         },
-        retainCandidate: async (files) => {
+        retainCandidate: async (files, context) => {
           /*
            * A rejected candidate is recoverable locally, but must never replace
            * the current editor, cloud snapshot, or visible preview.
            */
           await checkpoint(project, 'candidate', files);
+          await checkpoint(
+            project,
+            'candidate-context',
+            await candidateContext(context.task, context.base, files, context.plan),
+          );
         },
         compileCandidate: async (files, signal, stage) => {
           const wc = await runtime.ready(signal);
@@ -325,8 +371,19 @@ export async function runManagedTask(
         },
         verify: (files, signal, stage) => runtime.verify(files, signal, stage),
         stop: () => runtime.stop(),
+        diagnostic: (state) => {
+          void reportRepairCheck(state, chatId.get());
+        },
         record: async (state) => {
           void reportRuntime(state, chatId.get());
+
+          if (state.phase === 'failed') {
+            /*
+             * Complete, bounded and redacted check text, not arbitrary streamed
+             * chunks. Reuse the existing local runtime log, never server logs.
+             */
+            writeLocalDiagnostic('[检查失败]\n' + (state.errors.at(-1) || state.detail));
+          }
 
           if (state.plan && (!description.get() || description.get() === '未命名项目')) {
             description.set(state.plan.goal.slice(0, 100));
@@ -352,10 +409,11 @@ export async function runManagedTask(
       },
       (state) => runState.set(state),
     );
-    workbenchStore.onManualEdit = () => stopManagedRun('检测到手动编辑，已取消自动修改；请保存后重新提交需求。');
+    workbenchStore.onManualEdit = () =>
+      stopManagedRun('检测到手动编辑，已取消自动修改；请保存后重新提交需求。', 'manual_edit');
 
     try {
-      return await controller.run(task, { reviewPlan: options.reviewPlan });
+      return await controller.run(task, { reviewPlan: options.reviewPlan, resumeCandidate: recovered });
     } finally {
       controller = undefined;
       workbenchStore.onManualEdit = invalidateVerifiedSource;
@@ -371,20 +429,23 @@ export async function verifyRestoredProject(record?: (message: Message) => Promi
   await exclusive(async () => {
     runActivity.set({ receivedChars: 0, files: [] });
     restoreAbort = new AbortController();
+    restoreStopCause = undefined;
+    stopReason = '';
 
     const signal = restoreAbort.signal;
     const deadline = setTimeout(
-      () => stopManagedRun('源码恢复检查达到时间上限；已保存文件保留，请刷新后重试。'),
+      () => stopManagedRun('源码恢复检查达到时间上限；已保存文件保留，请刷新后重试。', 'task_timeout'),
       8 * 60 * 1000,
     );
-    workbenchStore.onManualEdit = () => stopManagedRun('检测到手动编辑，恢复检查已停止；保存后可重新检查。');
+    workbenchStore.onManualEdit = () =>
+      stopManagedRun('检测到手动编辑，恢复检查已停止；保存后可重新检查。', 'manual_edit');
 
     const initial: RunState = {
       id: crypto.randomUUID(),
       phase: 'installing',
       detail: '',
       attempt: 0,
-      maxRepairs: 2,
+      maxRepairs: MANAGED_MAX_REPAIRS,
       events: [],
       errors: [],
       changed: [],
@@ -413,8 +474,14 @@ export async function verifyRestoredProject(record?: (message: Message) => Promi
         runtime.stop();
       }
 
+      const timedOut = signal.aborted && restoreStopCause === 'task_timeout';
+      runState.set({
+        ...runState.get(),
+        stopCause: restoreStopCause,
+        failureCode: timedOut ? 'task_timeout' : signal.aborted ? undefined : failureCode(error),
+      });
       update(
-        signal.aborted ? 'cancelled' : 'failed',
+        signal.aborted && !timedOut ? 'cancelled' : 'failed',
         signal.aborted ? stopReason || '恢复检查已停止。' : (error as Error).message,
       );
     } finally {
@@ -459,5 +526,5 @@ export async function restoreBeforeRun() {
 
 if (typeof window !== 'undefined') {
   workbenchStore.onManualEdit = invalidateVerifiedSource;
-  window.addEventListener('pagehide', () => stopManagedRun('页面已离开，任务中断；恢复后需重新检查。'));
+  window.addEventListener('pagehide', () => stopManagedRun('页面已离开，任务中断；恢复后需重新检查。', 'page_left'));
 }

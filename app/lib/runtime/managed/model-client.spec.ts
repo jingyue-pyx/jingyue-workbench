@@ -1,10 +1,179 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { managedModelRequest } from './model-client';
 import { parsePlan, managedSystemPrompt } from './protocol';
+import { createBatchedModel } from './file-batches';
 
 afterEach(() => vi.unstubAllGlobals());
 
 describe('managed model request', () => {
+  it('makes repair scheduling distinct from reimplementing the original project', async () => {
+    const fetch = vi.fn(async () => new Response('0:"{}"\nd:{"finishReason":"stop"}\n'));
+    vi.stubGlobal('fetch', fetch);
+    await managedModelRequest(
+      'manifest',
+      {
+        task: '创建作品集全部模块',
+        operation: 'repair',
+        files: { 'src/Modal.tsx': 'current' },
+        errors: ['src/Modal.tsx TS2322'],
+      },
+      { provider: 'Bailian', model: 'fixture', signal: new AbortController().signal },
+    );
+
+    const request = JSON.parse((fetch.mock.calls[0] as unknown as [string, RequestInit])[1].body as string);
+    const payload = JSON.parse(request.messages[0].content.slice(request.messages[0].content.indexOf('{')));
+    expect(payload.task).toContain('最小修复清单');
+    expect(payload.projectGoal).toBe('创建作品集全部模块');
+    expect(payload.repairContract.currentDiagnostics).toEqual(['src/Modal.tsx TS2322']);
+    expect(payload.files['src/Modal.tsx']).toBe('current');
+  });
+  it.each([
+    ['minute', '60', 'model_rate_limit', true, 60000],
+    ['minute', '3', 'model_rate_limit', true, 3000],
+    ['minute', 'invalid', 'model_rate_limit', true, 60000],
+    ['daily', '60', 'model_daily_limit', false, 0],
+    ['unknown', '60', 'model_limit', false, 0],
+  ])(
+    'distinguishes the gateway limit %s without echoing response content',
+    async (kind, seconds, reason, retryable, retryAfterMs) => {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(
+          async () =>
+            new Response('private-canary', {
+              status: 429,
+              headers: { 'X-Jingyue-Model-Limit': String(kind), 'Retry-After': String(seconds) },
+            }),
+        ),
+      );
+      await expect(
+        managedModelRequest(
+          'plan',
+          { task: '页面', files: {}, errors: [] },
+          { model: 'fixture', provider: 'Bailian', signal: new AbortController().signal },
+        ),
+      ).rejects.toMatchObject({ reason, retryable, retryAfterMs });
+    },
+  );
+  it.each([
+    [401, 'session_expired', false],
+    [403, 'request_denied', false],
+    [429, 'model_limit', false],
+    [400, 'model_request', false],
+    [413, 'model_request', false],
+    [501, 'model_request', false],
+    [408, 'model_unavailable', true],
+    [500, 'model_unavailable', true],
+    [502, 'model_unavailable', true],
+    [503, 'model_unavailable', true],
+    [504, 'model_unavailable', true],
+  ])(
+    'maps HTTP %s to an explicit recovery policy without reading response secrets',
+    async (status, reason, retryable) => {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async () => new Response('private-canary', { status: Number(status) })),
+      );
+      await expect(
+        managedModelRequest(
+          'plan',
+          { task: '页面', files: {}, errors: [] },
+          {
+            model: 'fixture',
+            provider: 'Bailian',
+            signal: new AbortController().signal,
+          },
+        ),
+      ).rejects.toMatchObject({ reason, retryable });
+    },
+  );
+
+  it.each([
+    ['JINGYUE_MODEL_AUTH', 'model_auth', false],
+    ['JINGYUE_MODEL_REQUEST', 'model_request', false],
+    ['JINGYUE_MODEL_UNAVAILABLE', 'model_unavailable', true],
+    ['JINGYUE_MODEL_UNKNOWN', 'model_unknown', false],
+  ])('retains provider code %s for the scheduler instead of flattening it', async (code, reason, retryable) => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response(`3:${JSON.stringify(code)}\n`)),
+    );
+    await expect(
+      managedModelRequest(
+        'plan',
+        { task: '页面', files: {}, errors: [] },
+        {
+          model: 'fixture',
+          provider: 'Bailian',
+          signal: new AbortController().signal,
+        },
+      ),
+    ).rejects.toMatchObject({ reason, retryable });
+  });
+
+  it('discards interrupted text before retrying the same counted request', async () => {
+    const fetch = vi
+      .fn()
+      .mockResolvedValueOnce(new Response('0:"broken-partial"\n'))
+      .mockResolvedValueOnce(new Response('0:"complete-result"\nd:{"finishReason":"stop"}\n'));
+    vi.stubGlobal('fetch', fetch);
+
+    const request = createBatchedModel(
+      (phase, input, signal) =>
+        managedModelRequest(phase, input, {
+          model: 'fixture',
+          provider: 'Bailian',
+          signal,
+        }),
+      { guard: () => {}, wait: async () => {} },
+    );
+    await expect(request('plan', { task: '页面', files: {}, errors: [] }, new AbortController().signal)).resolves.toBe(
+      'complete-result',
+    );
+    expect(fetch).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not retry a content policy stop as a connection failure or code correction', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response('d:{"finishReason":"content-filter"}\n')),
+    );
+    await expect(
+      managedModelRequest(
+        'plan',
+        { task: '页面', files: {}, errors: [] },
+        {
+          model: 'fixture',
+          provider: 'Bailian',
+          signal: new AbortController().signal,
+        },
+      ),
+    ).rejects.toMatchObject({ reason: 'model_policy', retryable: false });
+  });
+  it('ends an overflow manifest request with a target-only extraction contract', async () => {
+    const fetch = vi.fn(async () => new Response('0:"{}"\nd:{"finishReason":"stop"}\n'));
+    vi.stubGlobal('fetch', fetch);
+    await managedModelRequest(
+      'manifest',
+      {
+        task: '营销 Agent 工作台',
+        files: { 'src/App.tsx': 'existing source' },
+        errors: [],
+        decomposition: { target: { path: 'src/App.tsx', instruction: '保留表单和结果交互' }, maxNewFiles: 4 },
+      },
+      { provider: 'Bailian', model: 'fixture', signal: new AbortController().signal },
+    );
+
+    const body = JSON.parse((fetch.mock.calls[0] as unknown as [string, RequestInit])[1].body as string);
+    const message = body.messages[0].content;
+    const payload = JSON.parse(message.slice(message.indexOf('{')));
+    expect(body.managedPhase).toBe('manifest');
+    expect(body.managedSingleFile).toBeUndefined();
+    expect(payload.outputContract.targetPath).toBe('src/App.tsx');
+    expect(payload.outputContract.maxNewFiles).toBe(4);
+    expect(payload.outputContract.response.files.at(-1).path).toBe('src/App.tsx');
+    expect(managedSystemPrompt('manifest')).toContain('OVERFLOW DECOMPOSITION');
+  });
   it.each([false, true])('scopes response examples to the actual CSS batch (exact edits: %s)', async (large) => {
     const fetch = vi.fn(async () => new Response('0:"{}"\nd:{"finishReason":"stop"}\n'));
     vi.stubGlobal('fetch', fetch);
@@ -68,7 +237,7 @@ describe('managed model request', () => {
   it.each([
     ['JINGYUE_MODEL_NETWORK', 'network', '连接中断'],
     ['JINGYUE_MODEL_LIMIT', 'quota', '额度'],
-    ['An error occurred. private-canary', 'model-service', '暂不可用'],
+    ['An error occurred. private-canary', 'model-service', '原因尚未确认'],
   ])('preserves safe provider stream failure %s without requesting code repair', async (code, category, message) => {
     const fetch = vi.fn(async () => new Response(`3:${JSON.stringify(code)}\n`));
     vi.stubGlobal('fetch', fetch);
@@ -152,7 +321,7 @@ describe('managed model request', () => {
     expect(payload.targetFile.path).toBe('src/App.tsx');
     expect(message.lastIndexOf('outputContract')).toBeGreaterThan(message.indexOf('"files"'));
   });
-  it('separates the single-file task from global instructions and omits stale chat in code batches', async () => {
+  it('separates the single-file task from bounded historical context in code batches', async () => {
     const fetch = vi.fn(async () => new Response('0:"{}"\nd:{"finishReason":"stop"}\n'));
     vi.stubGlobal('fetch', fetch);
 
@@ -180,8 +349,50 @@ describe('managed model request', () => {
     expect(input.projectGoal).toBe('两个文件都必须改动');
     expect(input.files[input.targetFile.path]).toBe('button{}');
     expect(input.files['src/App.tsx']).toBe('current app');
-    expect(message).not.toContain('stale-history-canary');
+    expect(input.conversation).toEqual([{ role: 'user', content: 'stale-history-canary' }]);
+    expect(input.conversationContext.scope).toBe('current-project-history');
+    expect(input.outputContract.targetPath).toBe('src/style.css');
+    expect(input.conversationContext.activeTask).toBeUndefined();
   });
+  it.each(['intent', 'answer', 'plan', 'manifest', 'generate', 'repair'] as const)(
+    'carries the active task and failed result into every %s request',
+    async (phase) => {
+      const fetch = vi.fn(async () => new Response('0:"{}"\nd:{"finishReason":"stop"}\n'));
+      vi.stubGlobal('fetch', fetch);
+
+      const history = [
+        { id: 'create', role: 'user' as const, content: '创建作品集，不编造奖项', annotations: ['managed-task'] },
+        {
+          id: 'fail',
+          role: 'assistant' as const,
+          content: '运行环境未就绪',
+          annotations: ['managed-outcome:failed:idle:sandbox:0'],
+        },
+        ...Array.from({ length: 16 }, (_, i) => ({ id: String(i), role: 'assistant' as const, content: '历史讨论' })),
+        { id: 'continue', role: 'user' as const, content: '继续再试试呢' },
+      ];
+      await managedModelRequest(
+        phase,
+        {
+          task: '继续再试试呢',
+          files: { 'src/App.tsx': 'current source' },
+          errors: [],
+          ...(['generate', 'repair'].includes(phase)
+            ? { batch: { id: 1, recovery: false, files: [{ path: 'src/App.tsx', instruction: '接续作品集' }] } }
+            : {}),
+        },
+        { provider: 'Bailian', model: 'fixture', history, signal: new AbortController().signal },
+      );
+
+      const body = JSON.parse((fetch.mock.calls[0] as unknown as [string, RequestInit])[1].body as string);
+      const input = JSON.parse(body.messages[0].content.slice(body.messages[0].content.indexOf('{')));
+      expect(input.conversationContext.activeTask).toBe('创建作品集，不编造奖项');
+      expect(input.conversationContext.latestOutcome.reason).toBe('浏览器运行环境未就绪');
+      expect(input.conversation.at(-1).content).toBe('继续再试试呢');
+      expect(input.files['src/App.tsx']).toBe('current source');
+      expect(fetch).toHaveBeenCalledTimes(1);
+    },
+  );
   it('distinguishes manifest truncation from an invalid engineering plan', async () => {
     vi.stubGlobal(
       'fetch',
@@ -235,7 +446,12 @@ describe('managed model request', () => {
           signal: new AbortController().signal,
         },
       ),
-    ).rejects.toMatchObject({ name: 'RunError', category: 'model-output', repairable: false });
+    ).rejects.toMatchObject({
+      name: 'ModelRequestError',
+      reason: 'model_incomplete',
+      category: 'model-output',
+      repairable: false,
+    });
   });
   it('reports full-file truncation to the batch scheduler instead of the compile repair loop', async () => {
     vi.stubGlobal(
@@ -331,7 +547,7 @@ describe('managed model request', () => {
         },
       ),
     ).rejects.toMatchObject({
-      message: '模型连接中断，未写入本次不完整文件；已有源码保留，请重试。',
+      message: expect.stringContaining('模型连接中断'),
       repairable: false,
     });
   });
@@ -367,7 +583,7 @@ describe('managed model request', () => {
           signal: new AbortController().signal,
         },
       ),
-    ).rejects.toMatchObject({ category: 'model-output', repairable: false });
+    ).rejects.toMatchObject({ category: 'model-output', reason: 'model_incomplete', repairable: false });
   });
   it('reports actual received output without publishing source or executing it', async () => {
     vi.stubGlobal(

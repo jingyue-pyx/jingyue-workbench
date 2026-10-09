@@ -22,6 +22,10 @@ import { assertSameSources, sourceRevision, sourceSnapshot } from './source-revi
 import { validateCandidate } from './preflight';
 import { enforceTaskCapabilities, validateAppAuthIntegration } from './capabilities';
 import { failureCode } from './failure-code';
+import type { StopCause } from './stop-cause';
+import { validateNewModuleIntegration } from './module-integration';
+import type { CandidateResume } from './candidate-recovery';
+import { MANAGED_MAX_REPAIRS } from './request-policy';
 
 export interface RunAdapter {
   appAuthEnabled?: boolean;
@@ -29,7 +33,7 @@ export interface RunAdapter {
   revision(): number;
   prepare?(signal: AbortSignal): Promise<void>;
   checkpoint(files: SourceFiles): Promise<void>;
-  retainCandidate?(files: SourceFiles): Promise<void>;
+  retainCandidate?(files: SourceFiles, context: { task: string; base: SourceFiles; plan: TaskPlan }): Promise<void>;
   compileCandidate?(
     files: SourceFiles,
     signal: AbortSignal,
@@ -40,6 +44,7 @@ export interface RunAdapter {
   apply(files: SourceFiles, signal: AbortSignal): Promise<void>;
   verify(files: SourceFiles, signal: AbortSignal, stage: (phase: RunPhase, detail: string) => void): Promise<string>;
   stop(): void;
+  diagnostic?(state: RunState): void;
   record(state: RunState): Promise<void>;
 }
 
@@ -49,7 +54,7 @@ export class ManagedRunController {
     phase: 'idle',
     detail: '',
     attempt: 0,
-    maxRepairs: 2,
+    maxRepairs: MANAGED_MAX_REPAIRS,
     events: [],
     errors: [],
     changed: [],
@@ -60,7 +65,10 @@ export class ManagedRunController {
   constructor(
     private _adapter: RunAdapter,
     private _publish: (state: RunState) => void,
-    private _options = { maxRepairs: 2, deadlineMs: 8 * 60 * 1000 },
+    private _options: { maxRepairs: number; deadlineMs: number; candidateMs?: number; finalizationMs?: number } = {
+      maxRepairs: MANAGED_MAX_REPAIRS,
+      deadlineMs: 8 * 60 * 1000,
+    },
   ) {}
 
   private _update(phase: RunPhase, detail: string) {
@@ -73,11 +81,12 @@ export class ManagedRunController {
     this._publish(this.state);
   }
 
-  cancel(reason = '任务已停止，已写入的草稿保留。') {
-    if (!this.#abort) {
+  cancel(reason = '任务已停止，已写入的草稿保留。', cause: StopCause = 'user_stop') {
+    if (!this.#abort || this.#abort.signal.aborted) {
       return;
     }
 
+    this.state = { ...this.state, stopCause: cause };
     this.#abort.abort(new RunError(reason));
 
     if (this.#liveRuntimeChanged) {
@@ -85,7 +94,7 @@ export class ManagedRunController {
     }
   }
 
-  async run(task: string, options: { reviewPlan?: boolean } = {}) {
+  async run(task: string, options: { reviewPlan?: boolean; resumeCandidate?: CandidateResume } = {}) {
     if (this.#abort) {
       throw new RunError('上一个任务仍在运行，请先停止。');
     }
@@ -97,7 +106,7 @@ export class ManagedRunController {
     this.#liveRuntimeChanged = false;
 
     let timer = setTimeout(
-      () => this.cancel('达到任务时间上限，草稿保留；可拆分需求后继续。'),
+      () => this.cancel('达到任务时间上限，草稿保留；可拆分需求后继续。', 'task_timeout'),
       this._options.deadlineMs,
     );
     this.state = {
@@ -133,6 +142,8 @@ export class ManagedRunController {
       this._update('planning', '正在规划任务与验收步骤');
 
       const before = sourceSnapshot(this._adapter.capture());
+      const resume =
+        options.resumeCandidate?.baseRevision === (await sourceRevision(before)) ? options.resumeCandidate : undefined;
       const requestPlan = async (prior?: TaskPlan): Promise<TaskPlan> => {
         let errors: string[] = [];
 
@@ -176,7 +187,9 @@ export class ManagedRunController {
         }
         throw new RunError('方案校验未完成，尚未改动文件。');
       };
-      let plan = await requestPlan();
+      let plan = resume
+        ? enforceTaskCapabilities(task, resume.plan, this._adapter.appAuthEnabled)
+        : await requestPlan();
       guard();
       assertSameSources(before, this._adapter.capture());
       this.state = { ...this.state, plan };
@@ -193,6 +206,55 @@ export class ManagedRunController {
       requireSupportedPlan();
 
       let reviewDuration = 0;
+
+      /*
+       * Compilation/network installation time is not model-generation time.
+       * All candidate attempts share ONE finite runtime allowance; retries do
+       * not reset it. The model retains its original call/token/time budget.
+       */
+      let candidateDuration = 0;
+      const modelRemaining = () =>
+        Math.max(
+          1,
+          this._options.deadlineMs - (Date.now() - this.state.startedAt - reviewDuration - candidateDuration),
+        );
+      const compileCandidate = async (files: SourceFiles) => {
+        if (!this._adapter.compileCandidate) {
+          return;
+        }
+
+        const remaining = (this._options.candidateMs ?? 6 * 60 * 1000) - candidateDuration;
+
+        if (remaining <= 0) {
+          this.cancel('候选安装与编译已达到运行检查时间上限，候选草稿保留。', 'task_timeout');
+          guard();
+        }
+
+        clearTimeout(timer);
+
+        const started = Date.now();
+        timer = setTimeout(
+          () => this.cancel('候选安装与编译已达到运行检查时间上限，候选草稿保留。', 'task_timeout'),
+          remaining,
+        );
+
+        try {
+          await this._adapter.compileCandidate(files, signal, (phase, detail) => {
+            guard();
+            this._update(phase, detail);
+          });
+        } finally {
+          candidateDuration += Date.now() - started;
+          clearTimeout(timer);
+
+          if (!signal.aborted) {
+            timer = setTimeout(
+              () => this.cancel('达到生成与修复时间上限，草稿保留；可继续修复。', 'task_timeout'),
+              modelRemaining(),
+            );
+          }
+        }
+      };
       const review = async () => {
         /*
          * Human review is not model execution time. No file is written before
@@ -212,7 +274,10 @@ export class ManagedRunController {
         const result = await this._adapter.review!(plan, signal);
         reviewDuration += Date.now() - started;
         guard();
-        timer = setTimeout(() => this.cancel('达到任务时间上限，草稿保留；可拆分需求后继续。'), remaining);
+        timer = setTimeout(
+          () => this.cancel('达到任务时间上限，草稿保留；可拆分需求后继续。', 'task_timeout'),
+          remaining,
+        );
 
         return result;
       };
@@ -222,7 +287,7 @@ export class ManagedRunController {
        * but do not force another approval click. Design requests and genuinely
        * unresolved scope choices still require an explicit decision.
        */
-      if (this._adapter.review && (options.reviewPlan !== false || plan.questions.length > 0)) {
+      if (!resume && this._adapter.review && (options.reviewPlan !== false || plan.questions.length > 0)) {
         /*
          * Adjusting is a human-directed plan revision, not a cancelled coding
          * task. Each changed plan needs a fresh approval before any file write.
@@ -303,6 +368,8 @@ export class ManagedRunController {
       }
 
       let lastFailure = '';
+      let unresolvedError: RunError | undefined;
+      let finalizationGranted = false;
       let canAcceptNoChange = !pending && !this.state.errors.length;
       const fullFilePaths = new Set<string>();
 
@@ -326,20 +393,40 @@ export class ManagedRunController {
           guard();
           assertSameSources(live, this._adapter.capture());
 
-          const result = await this._adapter.model(
-            attempt ? 'repair' : 'generate',
-            {
-              task,
-              plan,
-              files,
-              errors: this.state.errors,
-              fullFilePaths: [...fullFilePaths],
-              sourceRevision: inputRevision,
-              runId: this.state.id,
-              attempt,
-            },
-            signal,
-          );
+          const result =
+            resume && attempt === 0
+              ? JSON.stringify({
+                  status: 'changed',
+                  summary: '恢复上次完整候选，先复检，不重新生成',
+
+                  /*
+                   * Checkpoints are full snapshots, including npm's lockfile.
+                   * Replay only changes through the model-write path validator;
+                   * unchanged protected files stay in the trusted live base.
+                   */
+                  files: Object.entries(resume.files)
+                    .filter(([path, content]) => files[path] !== content)
+                    .map(([path, content]) => ({ path, content })),
+                })
+              : await this._adapter.model(
+                  attempt ? 'repair' : 'generate',
+                  {
+                    task,
+                    plan,
+                    files,
+
+                    /*
+                     * Older failures are audit history, not necessarily unresolved.
+                     * A recheck gives a complete diagnostic for the current snapshot.
+                     */
+                    errors: this.state.errors.slice(-1),
+                    fullFilePaths: [...fullFilePaths],
+                    sourceRevision: inputRevision,
+                    runId: this.state.id,
+                    attempt,
+                  },
+                  signal,
+                );
           guard();
           assertSameSources(live, this._adapter.capture());
 
@@ -379,17 +466,38 @@ export class ManagedRunController {
           pending = sourceSnapshot(candidate);
           pendingBase = live;
           this.state = { ...this.state, candidatePending: true };
-          await this._adapter.retainCandidate?.(pending);
+          await this._adapter.retainCandidate?.(pending, { task, base: before, plan });
           guard();
           assertSameSources(live, this._adapter.capture());
           validateCandidate(candidate);
+
+          if (!Object.keys(before).length) {
+            validateNewModuleIntegration(candidate);
+          }
+
           validateAppAuthIntegration(task, candidate, !!this._adapter.appAuthEnabled);
-          await this._adapter.compileCandidate?.(candidate, signal, (phase, detail) => {
-            guard();
-            this._update(phase, detail);
-          });
+          await compileCandidate(candidate);
           guard();
           assertSameSources(live, this._adapter.capture());
+
+          /*
+           * Candidate compilation is intentionally isolated from the live
+           * preview. Do not kill a validated candidate during the subsequent
+           * live install/build just because model generation used most of the
+           * task clock. Grant this bounded reserve ONCE, only after the real
+           * candidate compiler passed. Model call/token/repair limits do not
+           * change, and each install/compiler/preview still has its own timeout.
+           */
+          if (this._adapter.compileCandidate && !finalizationGranted) {
+            finalizationGranted = true;
+
+            const remaining = modelRemaining();
+            clearTimeout(timer);
+            timer = setTimeout(
+              () => this.cancel('预览收尾达到时间上限，已校验源码保留；可以继续检查预览。', 'task_timeout'),
+              Math.max(remaining, this._options.finalizationMs ?? 4 * 60 * 1000),
+            );
+          }
 
           const writes = Object.fromEntries(
             Object.entries(candidate).filter(([path, content]) => live[path] !== content),
@@ -424,6 +532,33 @@ export class ManagedRunController {
         } catch (error) {
           guard();
 
+          /*
+           * A repair no-op is not a new source failure. Keep the actual failed
+           * check authoritative instead of replacing it with "no changes".
+           */
+          const ineffectiveRepair = error instanceof RunError && error.category === 'no-change' && unresolvedError;
+
+          if (ineffectiveRepair) {
+            /*
+             * Correct an ineffective answer within the remaining repair budget;
+             * do not stop early or reset the budget and do not erase the cause.
+             */
+            error = new RunError(
+              '自动修复未提供有效改动，原检查错误仍未解决。请修改诊断对应的实际调用与类型契约，不可再次返回 unchanged：\n' +
+                safeDiagnostic(unresolvedError!.message),
+              true,
+              unresolvedError!.category,
+            );
+          }
+
+          if (
+            !ineffectiveRepair &&
+            error instanceof RunError &&
+            ['compile', 'syntax', 'dependency', 'style'].includes(error.category)
+          ) {
+            unresolvedError = error;
+          }
+
           if (error instanceof ExactEditError) {
             fullFilePaths.add(error.filePath);
           }
@@ -442,6 +577,18 @@ export class ManagedRunController {
 
           const diagnostic = safeDiagnostic(error instanceof Error ? error.message : String(error));
           this.state = { ...this.state, errors: [...this.state.errors, diagnostic].slice(-3) };
+
+          // Diagnostic reporting is best-effort; it cannot break execution.
+          try {
+            this._adapter.diagnostic?.({
+              ...this.state,
+              phase: 'failed',
+              detail: diagnostic,
+              failureCode: failureCode(error),
+            });
+          } catch {
+            /* Keep the original failure. */
+          }
 
           if (!(error instanceof RunError) || !error.repairable || attempt >= this._options.maxRepairs) {
             throw error;
@@ -468,8 +615,12 @@ export class ManagedRunController {
         : error instanceof Error
           ? error.message
           : String(error);
-      this.state = { ...this.state, failureCode: signal.aborted ? undefined : failureCode(error) };
-      this._update(signal.aborted ? 'cancelled' : 'failed', message);
+      const timedOut = signal.aborted && this.state.stopCause === 'task_timeout';
+      this.state = {
+        ...this.state,
+        failureCode: timedOut ? 'task_timeout' : signal.aborted ? undefined : failureCode(error),
+      };
+      this._update(signal.aborted && !timedOut ? 'cancelled' : 'failed', message);
 
       return this.state;
     } finally {

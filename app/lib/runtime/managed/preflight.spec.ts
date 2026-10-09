@@ -5,6 +5,20 @@ import { assertSameSources, sourceRevision, sourceSnapshot } from './source-revi
 import type { SourceFiles } from './protocol';
 
 describe('candidate preflight and revision identity', () => {
+  it('does not parse JSX in .ts files as if they were .tsx', () => {
+    expect(() =>
+      validateCandidate({ ...STYLED_REACT_VITE_TEMPLATE, 'src/Form.ts': 'export const Form = () => <form/>;' }),
+    ).toThrow('候选源码语法检查失败');
+    expect(() =>
+      validateCandidate({ ...STYLED_REACT_VITE_TEMPLATE, 'src/Form.tsx': 'export const Form = () => <form/>;' }),
+    ).not.toThrow();
+    expect(() =>
+      validateCandidate({
+        ...STYLED_REACT_VITE_TEMPLATE,
+        'src/generic.ts': 'export const value = <number>1; export const identity = <T>(x: T) => x;',
+      }),
+    ).not.toThrow();
+  });
   it('parses the supported typed template without executing source', () => {
     expect(() =>
       validateCandidate({

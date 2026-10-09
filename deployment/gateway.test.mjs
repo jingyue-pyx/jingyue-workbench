@@ -8,6 +8,7 @@ import { createGateway, failureDetails } from './gateway.mjs';
 import { configuration, modelCatalog } from './security.mjs';
 import { createModelNetwork } from './network.mjs';
 import { hasCredentialLiteral, inspectRelease } from './scan.mjs';
+import { AccountError } from './accounts.mjs';
 
 const user = 'test-only-user';
 const password = 'test-only-not-a-real-access-password';
@@ -151,12 +152,17 @@ test('runtime events require authentication and same origin, contain finite labe
   for (const body of [
     { ...data, message: 'credential-canary' },
     { ...data, stage: 'credential-canary' },
-    { ...data, attempt: 3 },
+    { ...data, attempt: 7 },
     { ...data, reason: 'credential-canary' },
   ])
     assert.equal((await request(body)).status, 400);
   assert.equal((await request({ ...data, message: 'x'.repeat(1024) })).status, 413);
   assert.deepEqual(events, ['client_runtime_failed_planning_plan_format_repair_0']);
+  for (const attempt of [3, 6]) {
+    assert.equal((await request({ ...data, attempt })).status, 200);
+    assert.equal(events.at(-1), `client_runtime_failed_planning_plan_format_repair_${attempt}`);
+  }
+  assert.equal(received(), undefined);
 });
 
 test('runtime event ingestion has an independent bounded rate limit', async (t) => {
@@ -169,6 +175,27 @@ test('runtime event ingestion has an independent bounded rate limit', async (t) 
     });
   for (let i = 0; i < 30; i++) assert.equal((await send()).status, 200);
   assert.equal((await send()).status, 429);
+});
+
+test('daily model quota is distinguished from a transient gateway limit without forwarding', async (t) => {
+  let quotaCalls = 0;
+  const { origin, config, received } = await fixture(t, {
+    accountStore: {
+      authenticate: async () => ({ id: 'qa-owner' }),
+      allowModel: async () => { quotaCalls++; throw new AccountError(429, 'ACCOUNT_RATE_LIMIT', 'limit'); },
+    },
+  });
+  config.authMode = 'accounts';
+  const response = await fetch(origin + '/api/chat', {
+    method: 'POST',
+    headers: { origin, 'content-type': 'application/json', 'x-jingyue-user': 'qa-owner' },
+    body: JSON.stringify(chatBody),
+  });
+  assert.equal(response.status, 429);
+  assert.equal(response.headers.get('x-jingyue-model-limit'), 'daily');
+  assert.equal(response.headers.get('retry-after'), null);
+  assert.equal(quotaCalls, 1);
+  assert.equal(received(), undefined);
 });
 
 test('SSR, static assets, model catalog and isolation headers work after authentication', async (t) => {
@@ -299,7 +326,10 @@ test('model catalog and assets remain available while chat concurrency is full a
   const second = await post(stops[1]);
   assert.equal(first.status, 200);
   assert.equal(second.status, 200);
-  assert.equal((await post(stops[2])).status, 429);
+  const limited = await post(stops[2]);
+  assert.equal(limited.status, 429);
+  assert.equal(limited.headers.get('x-jingyue-model-limit'), 'minute');
+  assert.equal(limited.headers.get('retry-after'), '60');
   await Promise.all(
     Array.from({ length: 20 }, async (_, index) => {
       const response = await fetch(origin + (index % 2 ? '/api/models' : '/asset.js'), {

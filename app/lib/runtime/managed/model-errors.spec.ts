@@ -19,18 +19,18 @@ describe('bounded model failure diagnostics', () => {
           throw new Error('do not read');
         },
       }),
-    ).toBe('JINGYUE_MODEL_UNAVAILABLE');
+    ).toBe('JINGYUE_MODEL_UNKNOWN');
     expect(
       modelFailureCode({
         get code() {
           throw new Error('do not leak');
         },
       }),
-    ).toBe('JINGYUE_MODEL_UNAVAILABLE');
+    ).toBe('JINGYUE_MODEL_UNKNOWN');
 
     const circular = { cause: {} };
     circular.cause = circular;
-    expect(modelFailureCode(circular)).toBe('JINGYUE_MODEL_UNAVAILABLE');
+    expect(modelFailureCode(circular)).toBe('JINGYUE_MODEL_UNKNOWN');
     expect(
       modelFailureEvent('private-canary', 'JINGYUE_MODEL_NETWORK', { projectId: 'private-canary', batch: 2 }),
     ).toBe('managed_model_unknown_JINGYUE_MODEL_NETWORK_batch_2');

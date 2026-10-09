@@ -23,6 +23,11 @@ export function runtimeEventName(data) {
   if (
     ![
       'none',
+      'user_stop',
+      'page_left',
+      'manual_edit',
+      'superseded',
+      'task_timeout',
       'capability',
       'plan_format',
       'plan_clarification',
@@ -39,11 +44,27 @@ export function runtimeEventName(data) {
       'batch_budget',
       'patch_mismatch',
       'patch_format',
+      'patch_json',
+      'patch_schema',
+      'file_envelope',
       'batch_scope',
       'batch_missing',
+      'source_syntax',
       'manifest',
       'model_no_change',
       'model_service',
+      'model_network',
+      'model_unavailable',
+      'model_incomplete',
+      'model_auth',
+      'model_limit',
+      'model_rate_limit',
+      'model_daily_limit',
+      'model_request',
+      'model_unknown',
+      'model_policy',
+      'session_expired',
+      'request_denied',
       'sandbox',
       'other',
       'unsafe_path',
@@ -57,7 +78,7 @@ export function runtimeEventName(data) {
     ].includes(data.reason)
   )
     return null;
-  if (!Number.isInteger(data.attempt) || data.attempt < 0 || data.attempt > 2) return null;
+  if (!Number.isInteger(data.attempt) || data.attempt < 0 || data.attempt > 6) return null;
   let suffix = '';
   for (const key of ['projectId', 'runId']) {
     if (data[key] === undefined) continue;

@@ -263,7 +263,9 @@ export class AccountStore {
     if (token) await this.pool.query('DELETE FROM jingyue.account_sessions WHERE token_hash=$1', [digest(token)]);
   }
   async allowModel(user) {
-    await this.consume('model-global', this.config.globalDailyRequests, 86400);
-    await this.consume(`model-user:${user.id}`, this.config.userDailyRequests, 86400);
+    if (this.config.globalDailyRequests !== 0)
+      await this.consume('model-global', this.config.globalDailyRequests, 86400);
+    if (this.config.userDailyRequests !== 0)
+      await this.consume(`model-user:${user.id}`, this.config.userDailyRequests, 86400);
   }
 }

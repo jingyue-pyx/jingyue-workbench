@@ -35,8 +35,14 @@ import {
   verifyRestoredProject,
 } from '~/lib/runtime/managed/session';
 import { terminalPhase } from '~/lib/runtime/managed/protocol';
-import { routeConversation, latestOutcome, conversationFailureMessage } from '~/lib/runtime/managed/conversation';
+import {
+  routeConversation,
+  latestOutcome,
+  conversationFailureMessage,
+  conversationDiagnostics,
+} from '~/lib/runtime/managed/conversation';
 import { managedModelRequest } from '~/lib/runtime/managed/model-client';
+import { withRequestRecovery } from '~/lib/runtime/managed/request-errors';
 import { ProjectLoadingView } from './ProjectLoadingView';
 
 const toastAnimation = cssTransition({
@@ -183,7 +189,7 @@ export const ChatImpl = memo(
       return () => {
         active = false;
         conversationAbort.current?.abort();
-        stopManagedRun('页面已切换，自动任务已停止。');
+        stopManagedRun('页面已切换，自动任务已停止。', 'page_left');
       };
     }, []);
 
@@ -362,7 +368,7 @@ export const ChatImpl = memo(
       }
 
       if (isLoading || conversationAbort.current || (managedBusy && managedState.phase !== 'reviewing')) {
-        abort();
+        // A duplicate send is not a stop request. Only the dedicated stop control cancels.
         return;
       }
 
@@ -412,25 +418,34 @@ export const ChatImpl = memo(
          * Do not read a different cloud project or wait for a sandbox reinstall.
          */
         const sources = captureSources();
+        const diagnostics = conversationDiagnostics(messagesRef.current, runState.get());
+        let routingRetries = 0;
         const decision = await routeConversation(messageContent, {
           history: messagesRef.current,
           hasSources: Object.keys(sources).length > 0,
+          hasDiagnostics: diagnostics.length > 0,
+          awaitingApproval: runState.get().phase === 'reviewing',
           signal: requestAbort.signal,
           request: (phase, task) =>
-            managedModelRequest(
-              phase,
-              {
-                task,
-                files: sources,
-                errors: [JSON.stringify(latestOutcome(messagesRef.current) || {})],
-              },
-              {
-                model,
-                provider: provider.name,
-                history: messagesRef.current,
-                signal: requestAbort.signal,
-                projectId: chatId.get(),
-              },
+            withRequestRecovery(
+              () =>
+                managedModelRequest(
+                  phase,
+                  {
+                    task,
+                    files: sources,
+                    errors: [JSON.stringify(latestOutcome(messagesRef.current) || {}), ...diagnostics],
+                  },
+                  {
+                    model,
+                    provider: provider.name,
+                    history: messagesRef.current,
+                    signal: requestAbort.signal,
+                    projectId: chatId.get(),
+                  },
+                ),
+              requestAbort.signal,
+              { retry: () => ++routingRetries <= 2 },
             ),
         });
         requestAbort.signal.throwIfAborted();
@@ -461,7 +476,8 @@ export const ChatImpl = memo(
               id: crypto.randomUUID(),
               role: 'assistant',
               annotations: ['managed-run', 'managed-answer'],
-              content: '当前项目还没有可运行的源码。先完成已有方案的生成，再启动预览；本次不会自动创建新方案。',
+              content:
+                '当前项目还没有可运行的源码，暂时无法启动预览。可以说“重试上次任务”继续此前的创建需求；本次没有生成方案或改动文件。',
             });
             return;
           }
@@ -486,7 +502,7 @@ export const ChatImpl = memo(
          * invalidates the old approval before starting another plan.
          */
         if (runState.get().phase === 'reviewing') {
-          stopManagedRun('新的需求替代了待确认方案；旧确认按钮已失效。');
+          stopManagedRun('新的需求替代了待确认方案；旧确认按钮已失效。', 'superseded');
           await taskPromise.current;
         }
 
@@ -505,6 +521,7 @@ export const ChatImpl = memo(
           model,
           provider: provider.name,
           reviewPlan: decision.reviewPlan,
+          resumeCandidate: decision.resumeCandidate,
           history: messagesRef.current,
           saveDraft: () => storeMessageHistory(messagesRef.current),
           record,

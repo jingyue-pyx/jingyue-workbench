@@ -1,7 +1,9 @@
 import { describe, expect, it, vi, afterEach } from 'vitest';
-import { runMessage, runtimeEvent, reportRuntime } from './presentation';
+import { runMessage, runtimeEvent, reportRepairCheck, reportRuntime } from './presentation';
 import type { RunState } from './protocol';
 import { BATCH_FAILURE_REASONS } from './batch-failure';
+import { STOP_REASONS } from './stop-cause';
+import { parseOutcomeAnnotation } from './outcome';
 
 const failed: RunState = {
   id: 'fixture',
@@ -16,6 +18,68 @@ const failed: RunState = {
 };
 afterEach(() => vi.unstubAllGlobals());
 describe('runtime presentation and diagnostics', () => {
+  it('retains repairs zero through six in saved results and rejects out-of-range attempts', () => {
+    for (let attempt = 0; attempt <= 6; attempt++) {
+      const state: RunState = {
+        ...failed,
+        attempt,
+        maxRepairs: 6,
+        detail: 'TS2305 private-canary',
+        events: [{ phase: 'typechecking', detail: '', at: 1 }],
+      };
+      const event = runtimeEvent(state);
+      expect(
+        parseOutcomeAnnotation(`managed-outcome:${event.outcome}:${event.stage}:${event.reason}:${event.attempt}`),
+      ).toMatchObject({ attempt, reasonCode: 'compile' });
+      expect(runMessage(state)).not.toContain('private-canary');
+    }
+
+    for (const attempt of ['7', '8', '9', '10', '-1', '1.5', '06']) {
+      expect(parseOutcomeAnnotation(`managed-outcome:failed:typechecking:compile:${attempt}`)).toBeUndefined();
+    }
+  });
+  it('reports failed intermediate checks with finite metadata without leaking source or error text', async () => {
+    const fetch = vi.fn(async () => new Response('{}'));
+    vi.stubGlobal('fetch', fetch);
+
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+    try {
+      await reportRepairCheck({
+        ...failed,
+        detail: 'src/App.tsx TS2322 private-canary',
+        events: [{ phase: 'typechecking', detail: 'private-canary', at: 1 }],
+      });
+      expect(warn).toHaveBeenCalledWith('jingyue_runtime_check', expect.stringContaining('"outcome":"retrying"'));
+      expect(JSON.stringify(warn.mock.calls)).not.toContain('private-canary');
+      expect(JSON.stringify(fetch.mock.calls)).not.toContain('private-canary');
+      expect(JSON.stringify(fetch.mock.calls)).toContain('compile');
+    } finally {
+      warn.mockRestore();
+    }
+  });
+  it.each(Object.entries(STOP_REASONS))('retains finite stop cause %s without raw diagnostics', (cause, reason) => {
+    const state: RunState = {
+      ...failed,
+      phase: cause === 'task_timeout' ? 'failed' : 'cancelled',
+      stopCause: cause as keyof typeof STOP_REASONS,
+      failureCode: cause === 'task_timeout' ? cause : undefined,
+    };
+    expect(runMessage(state)).toContain(reason);
+    expect(runMessage(state)).not.toContain('private-canary');
+
+    const event = runtimeEvent(state);
+    expect(event.reason).toBe(cause);
+    expect(
+      parseOutcomeAnnotation(`managed-outcome:${event.outcome}:${event.stage}:${event.reason}:${event.attempt}`)
+        ?.reason,
+    ).toBe(reason);
+  });
+  it('does not invent an explicit stop for older records without a cause', () => {
+    const state = { ...failed, phase: 'cancelled' as const };
+    expect(runMessage(state)).toContain('没有明确的停止原因');
+    expect(runtimeEvent(state).reason).toBe('other');
+  });
   it.each(Object.entries(BATCH_FAILURE_REASONS))('reports %s as a finite actionable batch reason', (code, reason) => {
     const state = { ...failed, detail: `文件批次校验仍未通过（${code}），private-canary` };
     expect(runMessage(state)).toContain(reason);
@@ -70,6 +134,17 @@ describe('runtime presentation and diagnostics', () => {
       expect(runMessage(state)).not.toMatch(/private-canary|未能完成页面准备|已就绪/);
     },
   );
+  it.each(['typechecking', 'building'] as const)('does not turn a %s timeout into a source defect', (stage) => {
+    const state = {
+      ...failed,
+      detail: '执行超时，已停止进程。 private-canary',
+      events: [{ phase: stage, detail: '', at: 1 }],
+    };
+    expect(runMessage(state)).toContain('等待超时');
+    expect(runMessage(state)).toContain('重新检查预览');
+    expect(runMessage(state)).not.toMatch(/代码未通过|自动修复尚未解决|private-canary/);
+    expect(runtimeEvent(state).reason).toBe('timeout');
+  });
   it.each(['npm ERR! code E429 429 Too Many Requests registry', 'npm ERR! something failed in 429ms'])(
     'never calls package install failures model quota: %s',
     (detail) => {

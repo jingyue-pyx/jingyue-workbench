@@ -1,7 +1,13 @@
 import { RunError } from './protocol';
+import { ModelRequestError, REQUEST_FAILURES } from './request-errors';
 
 // Only these public labels may reach the UI, saved history or diagnostic logs.
 export const FAILURE_REASONS = {
+  task_timeout: '任务达到执行时间上限，系统已中断等待；这不是主动取消',
+  ...(Object.fromEntries(Object.entries(REQUEST_FAILURES).map(([code, failure]) => [code, failure.message])) as Record<
+    keyof typeof REQUEST_FAILURES,
+    string
+  >),
   unsafe_path: '模型返回了禁止写入的文件路径，安全检查已阻止写入',
   protected_config: '模型试图改动受保护的编译配置或基础依赖版本，当前工程未被替换',
   source_size: '文件或项目上下文超过本次处理上限，需拆分修改范围',
@@ -13,6 +19,10 @@ export const FAILURE_REASONS = {
 } as const;
 
 export function failureCode(error: unknown): keyof typeof FAILURE_REASONS | undefined {
+  if (error instanceof ModelRequestError) {
+    return error.reason;
+  }
+
   if (error instanceof RunError) {
     const codes: Record<string, keyof typeof FAILURE_REASONS> = {
       'unsafe-path': 'unsafe_path',

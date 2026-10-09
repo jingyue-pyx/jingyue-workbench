@@ -58,9 +58,9 @@ export function configuration(env) {
   const legacyUsername = (env.JINGYUE_LEGACY_ACCOUNT || username).normalize('NFKC').trim().toLowerCase();
   if (authMode === 'accounts' && !/^[\p{L}\p{N}][\p{L}\p{N}_.-]{2,31}$/u.test(legacyUsername))
     throw new Error('Set a valid reserved legacy account name.');
-  const positiveLimit = (key, fallback, max) => {
-    const value = Number(env[key] || fallback);
-    if (!Number.isInteger(value) || value < 1 || value > max) throw new Error('Invalid account limit.');
+  const positiveLimit = (key, fallback, max, allowUnlimited = false) => {
+    const value = Number(env[key] ?? fallback);
+    if (!Number.isInteger(value) || value < (allowUnlimited ? 0 : 1) || value > max || (typeof env[key] === 'string' && !env[key].trim())) throw new Error('Invalid account limit.');
     return value;
   };
   return {
@@ -74,8 +74,9 @@ export function configuration(env) {
     legacyAccessUser: username,
     registrationOpen: env.JINGYUE_REGISTRATION_OPEN === '1',
     maxAccounts: positiveLimit('JINGYUE_MAX_ACCOUNTS', 20, 100),
-    userDailyRequests: positiveLimit('JINGYUE_USER_DAILY_REQUESTS', 20, 100),
-    globalDailyRequests: positiveLimit('JINGYUE_GLOBAL_DAILY_REQUESTS', 100, 500),
+    // Explicit 0 disables only this daily model counter. Defaults remain bounded.
+    userDailyRequests: positiveLimit('JINGYUE_USER_DAILY_REQUESTS', 20, 100, true),
+    globalDailyRequests: positiveLimit('JINGYUE_GLOBAL_DAILY_REQUESTS', 100, 500, true),
     modelEnv: { DASHSCOPE_API_KEY: env.DASHSCOPE_API_KEY || '', DASHSCOPE_BASE_URL: endpoint.href.replace(/\/$/, '') },
   };
 }

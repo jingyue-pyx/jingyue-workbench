@@ -1,4 +1,4 @@
-import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises';
+import { mkdtemp, mkdir, writeFile, rm, symlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { execFile } from 'node:child_process';
@@ -52,6 +52,51 @@ afterEach(async () => {
   }
 });
 describe('installed dependency integrity', () => {
+  it('accepts the real installed pinned icon package without executing its modules', async () => {
+    const cwd = await fixture({
+      'package.json': JSON.stringify({ dependencies: { 'react-icons': '5.5.0' } }),
+      'package-lock.json': JSON.stringify({ packages: { 'node_modules/react-icons': {} } }),
+    });
+    await mkdir(join(cwd, 'node_modules'));
+    await symlink(join(process.cwd(), 'node_modules/react-icons'), join(cwd, 'node_modules/react-icons'));
+    await expect(
+      execute(process.execPath, ['--input-type=module', '-e', installIntegrityScript], { cwd }),
+    ).resolves.toMatchObject({ stdout: '', stderr: '' });
+  });
+  it.each(['', ' \n\t'])('rejects an empty declared type file (%j)', async (content) => {
+    const cwd = await fixture({ ...complete, 'node_modules/@types/prop-types/index.d.ts': content });
+    await expect(
+      execute(process.execPath, ['--input-type=module', '-e', installIntegrityScript], { cwd }),
+    ).rejects.toMatchObject({ code: 86 });
+  });
+  it.each(['types', 'import', 'require'])(
+    'checks the actual icon subpath %s entry, not only package root',
+    async (broken) => {
+      const paths = { types: 'index.d.ts', import: 'index.mjs', require: 'index.js' };
+      const files = {
+        ...complete,
+        'package.json': JSON.stringify({ dependencies: { 'react-icons': '5.5.0' } }),
+        'node_modules/react-icons/package.json': JSON.stringify({
+          name: 'react-icons',
+          version: '5.5.0',
+          types: 'lib/index.d.ts',
+          exports: { './fa': Object.fromEntries(Object.entries(paths).map(([key, path]) => [key, './fa/' + path])) },
+        }),
+        'node_modules/react-icons/lib/index.d.ts': 'export type IconType = unknown;',
+        'node_modules/react-icons/fa/index.d.ts': 'export declare const FaBullseye: unknown;',
+        'node_modules/react-icons/fa/index.mjs': 'throw new Error("must not execute dependencies")',
+        'node_modules/react-icons/fa/index.js': 'throw new Error("must not execute dependencies")',
+      };
+      const cwd = await fixture(files);
+      await expect(
+        execute(process.execPath, ['--input-type=module', '-e', installIntegrityScript], { cwd }),
+      ).resolves.toMatchObject({ stdout: '', stderr: '' });
+      await writeFile(join(cwd, 'node_modules/react-icons/fa/' + paths[broken as keyof typeof paths]), '');
+      await expect(
+        execute(process.execPath, ['--input-type=module', '-e', installIntegrityScript], { cwd }),
+      ).rejects.toMatchObject({ code: 86, stderr: expect.stringContaining('node_modules/react-icons') });
+    },
+  );
   it('accepts complete metadata and types while allowing absent optional platform packages', async () => {
     const cwd = await fixture(complete);
     await expect(

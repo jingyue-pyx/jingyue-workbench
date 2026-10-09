@@ -56,6 +56,8 @@ globalThis.fetch = async (input, options = {}) => {
       contradictoryEditExample: system.includes('PREFER') || system.includes('"edits":'),
       guardsPresent: system.includes('Do not weaken type checks') && system.includes('Never include secrets'),
       single: system.includes('SINGLE-FILE RESPONSE CONTRACT'),
+      source: system.includes('SINGLE-FILE SOURCE RECOVERY'),
+      contradictoryJson: system.includes('ONLY valid JSON'),
       filesExample: system.includes('"files":'),
     });
     const chunk = { id: 'fixture', object: 'chat.completion.chunk', created: 1, model: 'qwen3-coder-next', choices: [{ index: 0, delta: { role: 'assistant', content: '{}' }, finish_reason: 'stop' }] };

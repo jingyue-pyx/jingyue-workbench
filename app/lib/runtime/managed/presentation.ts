@@ -5,6 +5,8 @@ import type { ManagedModelInput } from './protocol';
 import { managedTrace } from './request-policy';
 import { batchFailureCode, BATCH_FAILURE_REASONS } from './batch-failure';
 import { failureReason } from './failure-code';
+import { requestFailureMessage } from './request-errors';
+import { stopReason } from './stop-cause';
 
 /*
  * Compiler/package logs can contain HTTP 429, line numbers or timings. None of
@@ -16,7 +18,7 @@ const modelQuotaFailure = (text: string) =>
 // User-facing copy is independent from compiler output and logs.
 export function runMessage(
   state: Pick<RunState, 'phase'> &
-    Partial<Pick<RunState, 'events' | 'detail' | 'candidatePending' | 'attempt' | 'failureCode'>>,
+    Partial<Pick<RunState, 'events' | 'detail' | 'candidatePending' | 'attempt' | 'failureCode' | 'stopCause'>>,
 ) {
   if (state.phase === 'succeeded') {
     return '页面预览已就绪，可以继续查看或修改。';
@@ -27,10 +29,16 @@ export function runMessage(
   }
 
   if (state.phase === 'cancelled') {
-    return '已停止，当前草稿保留。';
+    return `${stopReason(state.stopCause) || '任务已中断，记录中没有明确的停止原因'}。当前草稿保留，可继续提问；恢复后可说“重试上次任务”。`;
   }
 
   if (state.phase === 'failed') {
+    const requestFailure = requestFailureMessage(state.failureCode);
+
+    if (requestFailure) {
+      return requestFailure;
+    }
+
     const reason = failureReason(state.failureCode);
 
     if (reason) {
@@ -46,7 +54,7 @@ export function runMessage(
     }
 
     if (/模型输出达到长度限制/.test(state.detail || '')) {
-      return '单文件输出仍达到长度上限：系统已缩小批次并有限重试，不完整内容没有写入。已完成的候选批次保留在本机，现有源码和预览未替换；可以继续要求拆分大组件后修改。';
+      return '本轮仍有文件输出超过模型长度上限，有限恢复未能完成，不完整内容没有写入。已完成的候选批次保留在本机，现有源码和预览未替换；可以继续提出需要优先完成的具体功能，或询问本次失败原因。';
     }
 
     if (/分批生成达到/.test(state.detail || '')) {
@@ -69,6 +77,10 @@ export function runMessage(
 
     if (/候选源码语法检查失败/.test(state.detail || '')) {
       return '候选代码仍有语法错误，自动修复尚未通过。候选草稿保留在本机，当前工程未被这份候选覆盖；可以继续修复。';
+    }
+
+    if (/新项目模块未接入实际入口/.test(state.detail || '')) {
+      return '页面模块已经生成，但入口或路由尚未正确接入，自动修复仍未完成。候选草稿保留，当前工程未被替换；可以继续修复模块连接，无需重新描述项目。';
     }
 
     const stage = state.events?.filter((event) => !['failed', 'cancelled'].includes(event.phase)).at(-1)?.phase;
@@ -133,7 +145,13 @@ export function runMessage(
     }
 
     if (stage === 'typechecking' || stage === 'building') {
-      return `代码未通过${stage === 'typechecking' ? 'TypeScript 类型检查' : '正式构建'}，本轮自动修复尚未解决全部错误。已写入的草稿保留，尚未进入可用预览；可以继续要求修复当前代码，无需重新生成整个页面。`;
+      const step = stage === 'typechecking' ? 'TypeScript 类型检查' : '正式构建';
+
+      if (/执行超时|时间上限/.test(state.detail || '')) {
+        return `${step}等待超时，运行进程已停止；这不等于发现源码错误，也不是你主动取消。已保存源码保留；请保持工作台在前台后发送“重新检查预览”，无需重新生成页面。`;
+      }
+
+      return `代码未通过${step}，${state.attempt ? '本轮自动修复尚未解决全部错误' : '本次检查尚未通过'}。已写入的草稿保留，尚未进入可用预览；可以继续要求修复当前代码，无需重新生成整个页面。`;
     }
 
     return PREPARATION_FAILURE_MESSAGE;
@@ -208,11 +226,15 @@ export function runtimeEvent(state: RunState) {
       state.events.filter((event) => !['failed', 'cancelled', 'succeeded', 'unchanged'].includes(event.phase)).at(-1)
         ?.phase || 'idle',
     reason:
-      state.phase === 'failed'
-        ? failureReason(state.failureCode)
-          ? state.failureCode!
-          : batchFailureCode(text) || reason
-        : reason,
+      state.phase === 'cancelled'
+        ? stopReason(state.stopCause)
+          ? state.stopCause!
+          : 'other'
+        : state.phase === 'failed'
+          ? failureReason(state.failureCode)
+            ? state.failureCode!
+            : batchFailureCode(text) || reason
+          : reason,
     attempt: state.attempt,
   };
 }
@@ -225,6 +247,19 @@ export function reportRuntime(state: RunState, projectId?: string) {
     // Public finite metadata only: no Error object/message, source or model reply.
     console.warn('jingyue_runtime_failure', JSON.stringify(event));
   }
+
+  return reportEvent(event);
+}
+
+export function reportRepairCheck(state: RunState, projectId?: string) {
+  const event = {
+    ...runtimeEvent(state),
+    outcome: 'retrying',
+    ...managedTrace({ projectId, runId: state.id }),
+  };
+
+  // Preserve every failed check as finite metadata, never model text or source.
+  console.warn('jingyue_runtime_check', JSON.stringify(event));
 
   return reportEvent(event);
 }

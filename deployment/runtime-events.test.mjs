@@ -1,8 +1,61 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { runtimeEventName } from './runtime-events.mjs';
+test('accepts six repair rounds, preserves old events and rejects unbounded attempts', () => {
+  const event = { outcome: 'retrying', stage: 'typechecking', reason: 'compile' };
+  for (let attempt = 0; attempt <= 6; attempt++) {
+    assert.equal(runtimeEventName({ ...event, attempt }), `client_runtime_retrying_typechecking_compile_repair_${attempt}`);
+  }
+  for (const attempt of [-1, 7, 1.5, '6', NaN, Infinity]) {
+    assert.equal(runtimeEventName({ ...event, attempt }), null);
+  }
+  assert.equal(runtimeEventName({ ...event, attempt: 6, detail: 'private-canary' }), null);
+});
+test('distinguishes explicit cancellation, page lifecycle and deadline without raw details', () => {
+  for (const reason of ['user_stop', 'page_left', 'manual_edit', 'superseded', 'task_timeout']) {
+    const outcome = reason === 'task_timeout' ? 'failed' : 'cancelled';
+    const event = { outcome, stage: 'planning', reason, attempt: 0 };
+    assert.equal(runtimeEventName(event), `client_runtime_${outcome}_planning_${reason}_repair_0`);
+    assert.equal(runtimeEventName({ ...event, detail: 'private-canary' }), null);
+  }
+});
+test('keeps finite model recovery codes and rejects raw provider data', () => {
+  for (const reason of ['model_rate_limit', 'model_daily_limit']) {
+    assert.equal(
+      runtimeEventName({ outcome: 'retrying', stage: 'generating', reason, attempt: 0 }),
+      `client_runtime_retrying_generating_${reason}_repair_0`,
+    );
+  }
+  for (const reason of [
+    'model_network',
+    'model_unavailable',
+    'model_incomplete',
+    'model_auth',
+    'model_limit',
+    'model_request',
+    'model_unknown',
+    'model_policy',
+    'session_expired',
+    'request_denied',
+  ]) {
+    for (const outcome of ['failed', 'retrying']) {
+      const event = { outcome, stage: 'generating', reason, attempt: 0 };
+      assert.equal(runtimeEventName(event), `client_runtime_${outcome}_generating_${reason}_repair_0`);
+      assert.equal(runtimeEventName({ ...event, responseBody: 'secret-canary' }), null);
+    }
+  }
+});
 test('accepts finite generation/storage diagnostics but never error objects or raw text', () => {
-  for (const reason of ['unsafe_path', 'protected_config', 'source_size', 'recovery_storage', 'storage_quota', 'internal_type', 'internal_reference', 'internal_error']) {
+  for (const reason of [
+    'unsafe_path',
+    'protected_config',
+    'source_size',
+    'recovery_storage',
+    'storage_quota',
+    'internal_type',
+    'internal_reference',
+    'internal_error',
+  ]) {
     const event = { outcome: 'failed', stage: 'generating', reason, attempt: 0 };
     assert.equal(runtimeEventName(event), `client_runtime_failed_generating_${reason}_repair_0`);
     assert.equal(runtimeEventName({ ...event, detail: 'private-canary' }), null);
@@ -10,7 +63,7 @@ test('accepts finite generation/storage diagnostics but never error objects or r
   }
 });
 test('accepts only finite final batch subtypes with no raw source fields', () => {
-  for (const reason of ['patch_format', 'patch_mismatch', 'batch_scope', 'batch_missing']) {
+  for (const reason of ['patch_format', 'patch_mismatch', 'batch_scope', 'batch_missing', 'source_syntax']) {
     const event = { outcome: 'failed', stage: 'generating', reason, attempt: 0 };
     assert.equal(runtimeEventName(event), `client_runtime_failed_generating_${reason}_repair_0`);
     assert.equal(runtimeEventName({ ...event, source: 'private-canary' }), null);

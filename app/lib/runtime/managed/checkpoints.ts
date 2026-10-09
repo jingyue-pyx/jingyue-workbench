@@ -4,7 +4,7 @@ import { RunError, type SourceFiles } from './protocol';
 // Bounded local recovery points per account/project; never cookies or provider settings.
 export async function checkpoint(
   project: string,
-  kind: 'before' | 'verified' | 'candidate',
+  kind: 'before' | 'verified' | 'candidate' | 'candidate-context',
   files?: SourceFiles,
 ): Promise<SourceFiles | undefined> {
   const db = await new Promise<IDBDatabase>((resolve, reject) => {

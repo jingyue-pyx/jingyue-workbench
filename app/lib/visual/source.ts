@@ -15,6 +15,48 @@ function attribute(node: T.JSXElement, name: string) {
   );
 }
 
+/** Runtime editor markers are regenerated on write; never make the model copy their UUIDs. */
+export function stripGeneratedVisualMetadata(source: string): string {
+  if (!source.includes('data-jingyue-source') && !source.includes('data-oid')) {
+    return source;
+  }
+
+  const ranges: Array<[number, number]> = [];
+
+  try {
+    traverse(parse(source), {
+      JSXAttribute(path) {
+        const node = path.node;
+
+        if (!t.isJSXIdentifier(node.name) || !t.isStringLiteral(node.value)) {
+          return;
+        }
+
+        const generated =
+          (node.name.name === 'data-oid' && /^jy-[0-9a-f-]{36}$/i.test(node.value.value)) ||
+          (node.name.name === 'data-jingyue-source' && node.value.value.startsWith('/home/project/'));
+
+        if (generated && node.start != null && node.end != null) {
+          let start = node.start;
+
+          while (start > 0 && /[\t ]/.test(source[start - 1])) {
+            start--;
+          }
+          ranges.push([start, node.end]);
+        }
+      },
+    });
+  } catch {
+    return source; // Invalid syntax remains intact for the real compiler/repair diagnostics.
+  }
+
+  for (const [start, end] of ranges.sort((a, b) => b[0] - a[0])) {
+    source = source.slice(0, start) + source.slice(end);
+  }
+
+  return source;
+}
+
 export function instrumentSource(source: string, file: string): string {
   const ast = parse(source);
   let changed = false;

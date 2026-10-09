@@ -1,6 +1,9 @@
 /** Per-task ceilings, not a billing cap. Account-wide gateway quotas still apply to every request. */
 export const MANAGED_TASK_BUDGET = Object.freeze({ maxCalls: 32, maxReservedTokens: 160000 });
 
+/** Six repairs after initial generation; other task budgets still stop earlier. */
+export const MANAGED_MAX_REPAIRS = 6;
+
 /** Finite output budgets, not caller-supplied token counts. Gateway quotas still apply per call. */
 export function managedOutputTokens(phase: string, mode?: unknown) {
   if (phase === 'intent' || phase === 'answer') {
@@ -40,7 +43,7 @@ export function managedTrace(value: unknown) {
     }
   }
 
-  if (Number.isInteger(data.attempt) && Number(data.attempt) >= 0 && Number(data.attempt) <= 2) {
+  if (Number.isInteger(data.attempt) && Number(data.attempt) >= 0 && Number(data.attempt) <= MANAGED_MAX_REPAIRS) {
     trace.attempt = Number(data.attempt);
   }
 

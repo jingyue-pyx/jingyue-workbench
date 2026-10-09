@@ -12,6 +12,8 @@ import {
 } from './protocol';
 import { REACT_VITE_TEMPLATE, STYLED_REACT_VITE_TEMPLATE } from './template';
 import { previewProbeScript } from './webcontainer-runtime';
+import { outcomeAnnotation, routeConversation } from './conversation';
+import { sourceRevision } from './source-revision';
 
 const plan = JSON.stringify({ goal: '制作待办清单', steps: ['添加清单与按钮', '编译并检查预览'], supported: true });
 const patch = (text = '待办') =>
@@ -51,6 +53,141 @@ function fixture() {
 afterEach(() => vi.useRealTimers());
 
 describe('managed task lifecycle', () => {
+  it('resumes a modification without treating an unchanged installed lockfile as a model write', async () => {
+    const { controller, adapter, setFiles } = fixture();
+    const base = { ...STYLED_REACT_VITE_TEMPLATE, 'package-lock.json': '{"lockfileVersion":3}' };
+    setFiles(base);
+    adapter.compileCandidate = vi.fn().mockResolvedValue(undefined);
+
+    const files = { ...base, 'src/App.tsx': 'export default () => <main>Recovered form</main>' };
+    const result = await controller.run('修改联系表单', {
+      resumeCandidate: { baseRevision: await sourceRevision(base), files, plan: parsePlan(plan) },
+    });
+    expect(result.phase).toBe('succeeded');
+    expect(adapter.model).not.toHaveBeenCalled();
+    expect(adapter.capture()['package-lock.json']).toBe(base['package-lock.json']);
+  });
+  it('still rejects a recovered candidate that changes a protected lockfile', async () => {
+    const { controller, adapter, setFiles } = fixture();
+    const base = { ...STYLED_REACT_VITE_TEMPLATE, 'package-lock.json': '{"lockfileVersion":3}' };
+    setFiles(base);
+    adapter.compileCandidate = vi.fn();
+
+    const files = { ...base, 'package-lock.json': '{}', 'src/App.tsx': 'export default () => <main>Changed</main>' };
+    const result = await controller.run('修改联系表单', {
+      resumeCandidate: { baseRevision: await sourceRevision(base), files, plan: parsePlan(plan) },
+    });
+    expect(result).toMatchObject({ phase: 'failed', failureCode: 'unsafe_path' });
+    expect(adapter.model).not.toHaveBeenCalled();
+    expect(adapter.compileCandidate).not.toHaveBeenCalled();
+    expect(adapter.apply).not.toHaveBeenCalled();
+  });
+  it('rechecks a matching complete candidate without any planning or generation call', async () => {
+    const { controller, adapter } = fixture();
+    adapter.compileCandidate = vi.fn().mockResolvedValue(undefined);
+    adapter.review = vi.fn();
+
+    const files = { ...STYLED_REACT_VITE_TEMPLATE, 'src/App.tsx': 'export default () => <main>Recovered</main>' };
+    const result = await controller.run('创建作品集', {
+      resumeCandidate: { baseRevision: await sourceRevision({}), files, plan: parsePlan(plan) },
+    });
+    expect(result.phase).toBe('succeeded');
+    expect(adapter.model).not.toHaveBeenCalled();
+    expect(adapter.review).not.toHaveBeenCalled();
+    expect(adapter.compileCandidate).toHaveBeenCalledOnce();
+    expect(adapter.capture()['src/App.tsx']).toContain('Recovered');
+  });
+  it('repairs the recovered candidate only after a real check fails', async () => {
+    const { controller, adapter } = fixture();
+    adapter.compileCandidate = vi
+      .fn()
+      .mockRejectedValueOnce(new RunError('TS2322: bad type', true, 'compile'))
+      .mockResolvedValue(undefined);
+    vi.mocked(adapter.model).mockReset().mockResolvedValue(patch('Corrected'));
+
+    const files = { ...STYLED_REACT_VITE_TEMPLATE, 'src/App.tsx': 'export default () => <main>Recovered</main>' };
+    expect(
+      (
+        await controller.run('创建作品集', {
+          reviewPlan: false,
+          resumeCandidate: { baseRevision: await sourceRevision({}), files, plan: parsePlan(plan) },
+        })
+      ).phase,
+    ).toBe('succeeded');
+    expect(adapter.model).toHaveBeenCalledOnce();
+    expect(vi.mocked(adapter.model).mock.calls[0][0]).toBe('repair');
+    expect(vi.mocked(adapter.model).mock.calls[0][1].files['src/App.tsx']).toContain('Recovered');
+  });
+  it('repairs a new entry that ignores generated pages before any live write', async () => {
+    const { controller, adapter } = fixture();
+    vi.mocked(adapter.model)
+      .mockReset()
+      .mockResolvedValueOnce(plan)
+      .mockResolvedValueOnce(
+        JSON.stringify({
+          summary: '创建页面',
+          files: [
+            { path: 'src/App.tsx', content: 'export default function App(){return <main>占位副本</main>}' },
+            { path: 'src/pages/Home.tsx', content: 'export default function Home(){return <main>真实页面</main>}' },
+          ],
+        }),
+      )
+      .mockResolvedValueOnce(
+        JSON.stringify({
+          summary: '接入已生成页面',
+          files: [
+            {
+              path: 'src/App.tsx',
+              content: 'import Home from "./pages/Home"; export default function App(){return <Home/>}',
+            },
+          ],
+        }),
+      );
+    expect((await controller.run('创建个人作品集')).phase).toBe('succeeded');
+    expect(adapter.apply).toHaveBeenCalledOnce();
+    expect(vi.mocked(adapter.model).mock.calls[2][0]).toBe('repair');
+    expect(vi.mocked(adapter.model).mock.calls[2][1].errors[0]).toContain('模块未接入实际入口');
+    expect(adapter.capture()['src/App.tsx']).toContain('import Home');
+  });
+  it('resumes the original creation after a pre-generation sandbox failure rather than attempting empty preview', async () => {
+    const { controller, adapter } = fixture();
+    adapter.prepare = vi
+      .fn()
+      .mockRejectedValueOnce(new RunError('浏览器运行环境未启动', false, 'sandbox'))
+      .mockResolvedValue(undefined);
+
+    const task = '帮我创建一个个人作品集网站，包含介绍、筛选和联系入口。不编造奖项。';
+    const failed = await controller.run(task);
+    expect(failed.phase).toBe('failed');
+    expect(adapter.model).not.toHaveBeenCalled();
+    expect(adapter.apply).not.toHaveBeenCalled();
+    expect(adapter.capture()).toEqual({});
+
+    const classifier = vi.fn();
+    const route = await routeConversation('继续再试试呢', {
+      history: [
+        { id: 'task', role: 'user', content: task, annotations: ['managed-task'] },
+        { id: 'failure', role: 'assistant', content: '浏览器运行环境未启动', annotations: [outcomeAnnotation(failed)] },
+        { id: 'retry', role: 'user', content: '继续再试试呢', annotations: ['managed-run'] },
+      ],
+      hasSources: false,
+      signal: new AbortController().signal,
+      request: classifier,
+    });
+    expect(route).toHaveProperty('task');
+    expect(classifier).not.toHaveBeenCalled();
+
+    if (!('task' in route)) {
+      throw new Error('Expected a continued creation task');
+    }
+
+    const result = await controller.run(route.task, { reviewPlan: route.reviewPlan });
+    expect(result.phase).toBe('succeeded');
+    expect(adapter.prepare).toHaveBeenCalledTimes(2);
+    expect(vi.mocked(adapter.model).mock.calls[0][1].task).toContain(task);
+    expect(adapter.apply).toHaveBeenCalledOnce();
+    expect(adapter.verify).toHaveBeenCalledOnce();
+  });
   it('preserves a typed generation failure without replacing the live project', async () => {
     const { controller, adapter, setFiles } = fixture();
     setFiles({ ...REACT_VITE_TEMPLATE });
@@ -104,6 +241,73 @@ describe('managed task lifecycle', () => {
     expect(adapter.compileCandidate).toHaveBeenCalledTimes(2);
     expect(adapter.apply).toHaveBeenCalledOnce();
     expect(adapter.verify).toHaveBeenCalledOnce();
+  });
+  it('keeps the actual compiler error when repair returns no changes and reports the failed check', async () => {
+    const { controller, adapter } = fixture();
+    adapter.compileCandidate = vi
+      .fn()
+      .mockRejectedValue(new RunError('src/App.tsx(3,4): TS2322 type mismatch', true, 'compile'));
+    adapter.diagnostic = vi.fn();
+    vi.mocked(adapter.model)
+      .mockReset()
+      .mockResolvedValueOnce(plan)
+      .mockResolvedValueOnce(patch('candidate'))
+      .mockResolvedValue(JSON.stringify({ status: 'unchanged', summary: '不用修改', files: [] }));
+
+    const result = await controller.run('创建页面');
+    expect(result.phase).toBe('failed');
+    expect(result.detail).toContain('TS2322');
+    expect(result.detail).toContain('原检查错误仍未解决');
+    expect(adapter.diagnostic).toHaveBeenCalledWith(
+      expect.objectContaining({ phase: 'failed', detail: expect.stringContaining('TS2322') }),
+    );
+    expect(adapter.apply).not.toHaveBeenCalled();
+    expect(adapter.stop).not.toHaveBeenCalled();
+    expect(vi.mocked(adapter.model).mock.calls[2][1].errors[0]).toContain('TS2322');
+    expect(adapter.model).toHaveBeenCalledTimes(4);
+    expect(result.attempt).toBe(2);
+  });
+  it('uses the remaining bounded repair attempt to correct an ineffective no-op', async () => {
+    const { controller, adapter } = fixture();
+    adapter.compileCandidate = vi
+      .fn()
+      .mockRejectedValueOnce(new RunError('src/Form.tsx(26,17): TS2345 callback mismatch', true, 'compile'))
+      .mockResolvedValue(undefined);
+    vi.mocked(adapter.model)
+      .mockReset()
+      .mockResolvedValueOnce(plan)
+      .mockResolvedValueOnce(patch('candidate'))
+      .mockResolvedValueOnce(JSON.stringify({ status: 'unchanged', summary: 'already typed', files: [] }))
+      .mockImplementationOnce(async (phase, payload) => {
+        expect(phase).toBe('repair');
+        expect(payload.errors[0]).toContain('TS2345');
+        expect(payload.errors[0]).toContain('不可再次返回 unchanged');
+
+        return patch('actual callback fixed');
+      });
+    expect((await controller.run('创建页面')).phase).toBe('succeeded');
+    expect(adapter.model).toHaveBeenCalledTimes(4);
+    expect(adapter.compileCandidate).toHaveBeenCalledTimes(2);
+    expect(adapter.apply).toHaveBeenCalledTimes(1);
+  });
+  it('passes only the latest recheck to repair while retaining older diagnostics for audit', async () => {
+    const { controller, adapter } = fixture();
+    adapter.compileCandidate = vi
+      .fn()
+      .mockRejectedValueOnce(new RunError('TS2307 missing shared types', true, 'compile'))
+      .mockRejectedValueOnce(new RunError('TS2322 nullable component', true, 'compile'))
+      .mockResolvedValue(undefined);
+    vi.mocked(adapter.model)
+      .mockReset()
+      .mockResolvedValueOnce(plan)
+      .mockResolvedValueOnce(patch('one'))
+      .mockResolvedValueOnce(patch('two'))
+      .mockResolvedValueOnce(patch('three'));
+
+    const result = await controller.run('创建作品集');
+    expect(result.phase).toBe('succeeded');
+    expect(vi.mocked(adapter.model).mock.calls[3][1].errors).toEqual(['TS2322 nullable component']);
+    expect(result.errors).toEqual(['TS2307 missing shared types', 'TS2322 nullable component']);
   });
   it('keeps the live runtime untouched when a candidate installation cannot recover', async () => {
     const { controller, adapter, setFiles } = fixture();
@@ -607,14 +811,13 @@ describe('managed task lifecycle', () => {
     expect(adapter.model).toHaveBeenCalledTimes(2);
     expect(adapter.capture()['src/App.tsx']).toContain('待办');
   });
-  it('caps model repairs at two even if each failure differs', async () => {
+  it('caps model repairs at six even if each failure differs', async () => {
     const { controller, adapter } = fixture();
+    let generation = 0;
     vi.mocked(adapter.model)
       .mockReset()
       .mockResolvedValueOnce(plan)
-      .mockResolvedValueOnce(patch('1'))
-      .mockResolvedValueOnce(patch('2'))
-      .mockResolvedValueOnce(patch('3'));
+      .mockImplementation(async () => patch(String(++generation)));
 
     let count = 0;
     vi.mocked(adapter.verify).mockImplementation(async () => {
@@ -623,8 +826,64 @@ describe('managed task lifecycle', () => {
 
     const result = await controller.run('待办');
     expect(result.phase).toBe('failed');
-    expect(result.attempt).toBe(2);
-    expect(adapter.model).toHaveBeenCalledTimes(4);
+    expect(result.attempt).toBe(6);
+    expect(result.maxRepairs).toBe(6);
+    expect(adapter.verify).toHaveBeenCalledTimes(7);
+    expect(adapter.model).toHaveBeenCalledTimes(8); // Plan + initial generation + six repairs.
+  });
+  it('can succeed on the sixth repair without promoting earlier failed candidates', async () => {
+    const { controller, adapter, setFiles } = fixture();
+    const original = { ...REACT_VITE_TEMPLATE };
+    setFiles(original);
+
+    let generation = 0;
+    let checks = 0;
+    vi.mocked(adapter.model)
+      .mockReset()
+      .mockResolvedValueOnce(plan)
+      .mockImplementation(async () => patch(String(++generation)));
+    adapter.compileCandidate = vi.fn(async () => {
+      expect(adapter.capture()).toEqual(original);
+      expect(adapter.apply).not.toHaveBeenCalled();
+
+      if (++checks <= 6) {
+        throw new RunError(`TS2322 error ${checks}`, true, 'compile');
+      }
+    });
+
+    const result = await controller.run('修改营销页面');
+    expect(result).toMatchObject({ phase: 'succeeded', attempt: 6, maxRepairs: 6 });
+    expect(adapter.compileCandidate).toHaveBeenCalledTimes(7);
+    expect(adapter.model).toHaveBeenCalledTimes(8);
+    expect(adapter.apply).toHaveBeenCalledOnce();
+    expect(adapter.capture()['src/App.tsx']).toContain('7');
+  });
+  it('still repairs a compiler error after two generation repairs', async () => {
+    const { controller, adapter } = fixture();
+    vi.mocked(adapter.model)
+      .mockReset()
+      .mockResolvedValueOnce(plan)
+      .mockRejectedValueOnce(new RunError('generation error one', true))
+      .mockRejectedValueOnce(new RunError('generation error two', true))
+      .mockResolvedValueOnce(patch('candidate'))
+      .mockImplementationOnce(async (phase, payload) => {
+        expect(phase).toBe('repair');
+        expect(payload.attempt).toBe(3);
+        expect(payload.errors.join('\n')).toContain('TS2305');
+        expect(adapter.apply).not.toHaveBeenCalled();
+
+        return patch('fixed');
+      });
+    adapter.compileCandidate = vi
+      .fn()
+      .mockRejectedValueOnce(new RunError('TS2305: missing icon export', true, 'compile'))
+      .mockResolvedValue(undefined);
+
+    const result = await controller.run('生成营销页面');
+    expect(result).toMatchObject({ phase: 'succeeded', attempt: 3, maxRepairs: 6 });
+    expect(adapter.compileCandidate).toHaveBeenCalledTimes(2);
+    expect(adapter.model).toHaveBeenCalledTimes(5);
+    expect(adapter.apply).toHaveBeenCalledOnce();
   });
   it('stops repeated unchanged diagnostics before another paid retry', async () => {
     const { controller, adapter } = fixture();
@@ -706,8 +965,23 @@ describe('managed task lifecycle', () => {
         controller.cancel();
         return patch();
       });
-    expect((await controller.run('待办')).phase).toBe('cancelled');
+    expect(await controller.run('待办')).toMatchObject({ phase: 'cancelled', stopCause: 'user_stop' });
     expect(adapter.verify).not.toHaveBeenCalled();
+  });
+  it('retains the first interruption cause, including in saved records', async () => {
+    const { controller, adapter } = fixture();
+    vi.mocked(adapter.model)
+      .mockReset()
+      .mockResolvedValueOnce(plan)
+      .mockImplementationOnce(async () => {
+        controller.cancel('页面切换', 'page_left');
+        controller.cancel('迟到的停止点击', 'user_stop');
+
+        return patch();
+      });
+    expect(await controller.run('创建')).toMatchObject({ phase: 'cancelled', stopCause: 'page_left' });
+    expect(adapter.record).toHaveBeenCalledWith(expect.objectContaining({ stopCause: 'page_left' }));
+    expect(adapter.apply).not.toHaveBeenCalled();
   });
   it('save failure does not fabricate a build failure', async () => {
     const { controller, adapter } = fixture();
@@ -736,8 +1010,148 @@ describe('managed task lifecycle', () => {
     const controller = new ManagedRunController(adapter, () => {}, { maxRepairs: 2, deadlineMs: 100 });
     const result = controller.run('等待');
     await vi.advanceTimersByTimeAsync(101);
-    expect((await result).phase).toBe('cancelled');
+    expect(await result).toMatchObject({ phase: 'failed', stopCause: 'task_timeout', failureCode: 'task_timeout' });
     expect(adapter.apply).not.toHaveBeenCalled();
+  });
+  it('does not charge successful runtime checks against time already spent generating', async () => {
+    vi.useFakeTimers();
+
+    const { adapter } = fixture();
+    let modelBegin!: () => void;
+    const modelEntered = new Promise<void>((resolve) => {
+      modelBegin = resolve;
+    });
+    vi.mocked(adapter.model)
+      .mockReset()
+      .mockResolvedValueOnce(plan)
+      .mockImplementation(async () => {
+        modelBegin();
+        await new Promise((resolve) => setTimeout(resolve, 80));
+
+        return patch();
+      });
+
+    let begin!: () => void;
+    const entered = new Promise<void>((resolve) => {
+      begin = resolve;
+    });
+    adapter.compileCandidate = vi.fn(async () => {
+      begin();
+      await new Promise((resolve) => setTimeout(resolve, 80));
+    });
+
+    const controller = new ManagedRunController(adapter, () => {}, {
+      maxRepairs: 2,
+      deadlineMs: 100,
+      candidateMs: 100,
+    });
+    const result = controller.run('创建作品集');
+    await modelEntered;
+    await vi.advanceTimersByTimeAsync(80);
+    await entered;
+    await vi.advanceTimersByTimeAsync(81);
+    expect((await result).phase).toBe('succeeded');
+  });
+  it('shares a finite compilation allowance across repair attempts instead of resetting it', async () => {
+    vi.useFakeTimers();
+
+    const { adapter } = fixture();
+    vi.mocked(adapter.model)
+      .mockReset()
+      .mockResolvedValueOnce(plan)
+      .mockResolvedValueOnce(patch())
+      .mockResolvedValueOnce(patch('修复后'));
+
+    let begin!: () => void;
+    const entered = new Promise<void>((resolve) => {
+      begin = resolve;
+    });
+    adapter.compileCandidate = vi
+      .fn()
+      .mockImplementationOnce(async () => {
+        begin();
+        await new Promise((resolve) => setTimeout(resolve, 60));
+        throw new RunError('TS2322: wrong prop', true, 'compile');
+      })
+      .mockImplementation(
+        (_files, signal) =>
+          new Promise((_, reject) => signal.addEventListener('abort', () => reject(signal.reason), { once: true })),
+      );
+
+    const controller = new ManagedRunController(adapter, () => {}, {
+      maxRepairs: 2,
+      deadlineMs: 100,
+      candidateMs: 100,
+    });
+    const result = controller.run('创建作品集');
+    await entered;
+    await vi.advanceTimersByTimeAsync(61);
+
+    // sourceRevision uses the real crypto promise, independently of fake timers.
+    await vi.waitFor(() => expect(adapter.compileCandidate).toHaveBeenCalledTimes(2));
+    await vi.advanceTimersByTimeAsync(41);
+    expect(await result).toMatchObject({ phase: 'failed', failureCode: 'task_timeout' });
+    expect(adapter.apply).not.toHaveBeenCalled();
+  });
+  it('reserves bounded preview time only after candidate compilation really passed', async () => {
+    vi.useFakeTimers();
+
+    const { adapter } = fixture();
+    let begin!: () => void;
+    const compiling = new Promise<void>((resolve) => {
+      begin = resolve;
+    });
+    adapter.compileCandidate = vi.fn(async () => {
+      begin();
+      await new Promise((resolve) => setTimeout(resolve, 80));
+    });
+    adapter.verify = vi.fn(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      return 'https://preview.example.test';
+    });
+
+    const controller = new ManagedRunController(adapter, () => {}, {
+      maxRepairs: 2,
+      deadlineMs: 100,
+      finalizationMs: 60,
+    });
+    const result = controller.run('生成作品集');
+    await compiling;
+    await vi.advanceTimersByTimeAsync(131);
+    expect((await result).phase).toBe('succeeded');
+    expect(adapter.compileCandidate).toHaveBeenCalledOnce();
+    expect(adapter.model).toHaveBeenCalledTimes(2);
+  });
+  it('still aborts a stuck preview after its one finite finalization reserve', async () => {
+    vi.useFakeTimers();
+
+    const { adapter } = fixture();
+    let begin!: () => void;
+    const compiling = new Promise<void>((resolve) => {
+      begin = resolve;
+    });
+    adapter.compileCandidate = vi.fn(async () => {
+      begin();
+      await new Promise((resolve) => setTimeout(resolve, 80));
+    });
+    adapter.verify = vi.fn(
+      (_files, signal) =>
+        new Promise<string>((_, reject) => {
+          signal.addEventListener('abort', () => reject(signal.reason), { once: true });
+        }),
+    );
+
+    const controller = new ManagedRunController(adapter, () => {}, {
+      maxRepairs: 2,
+      deadlineMs: 100,
+      finalizationMs: 60,
+    });
+    const result = controller.run('生成作品集');
+    await compiling;
+    await vi.advanceTimersByTimeAsync(181);
+    expect(await result).toMatchObject({ phase: 'failed', failureCode: 'task_timeout' });
+    expect(adapter.stop).toHaveBeenCalled();
+    expect(adapter.model).toHaveBeenCalledTimes(2);
   });
 });
 

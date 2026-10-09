@@ -8,6 +8,20 @@ const fixture = {
   WORKBENCH_ACCESS_PASSWORD: 'not-a-real-password-test-only',
   DASHSCOPE_API_KEY: 'fake-test-key',
 };
+test('only an explicit zero disables a daily model limit, not account capacity or other safeguards', () => {
+  const defaults = configuration(fixture);
+  assert.equal(defaults.userDailyRequests, 20);
+  assert.equal(defaults.globalDailyRequests, 100);
+  const unlimited = configuration({...fixture, JINGYUE_USER_DAILY_REQUESTS:'0', JINGYUE_GLOBAL_DAILY_REQUESTS:'0'});
+  assert.equal(unlimited.userDailyRequests, 0);
+  assert.equal(unlimited.globalDailyRequests, 0);
+  assert.equal(unlimited.maxAccounts, defaults.maxAccounts);
+  assert.equal(unlimited.registrationOpen, false);
+  assert.throws(() => configuration({...fixture, JINGYUE_MAX_ACCOUNTS:'0'}));
+  for (const value of ['-1', 'NaN', 'Infinity', '0.5', '', '  ', '1000']) {
+    assert.throws(() => configuration({...fixture, JINGYUE_USER_DAILY_REQUESTS:value}));
+  }
+});
 test('production refuses missing credentials, insecure origin and custom model host', () => {
   assert.throws(() => configuration({ ...fixture, WORKBENCH_ACCESS_PASSWORD: '' }));
   assert.throws(() => configuration({ ...fixture, JINGYUE_PUBLIC_ORIGIN: 'http://example.test' }));

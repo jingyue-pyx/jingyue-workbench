@@ -250,6 +250,28 @@ test('login/registration rate-limit counters persist across account-store instan
   for (let i = 0; i < 10; i++) await restarted.guardAttempt('login', 'rate-user', 'rate-peer');
   await assert.rejects(store.guardAttempt('login', 'rate-user', 'rate-peer'), (e) => e.status === 429);
 });
+test('explicitly disabled daily counters skip quota consumption without clearing existing counters', async () => {
+  const unlimited = new AccountStore(pool, {...config, userDailyRequests:0, globalDailyRequests:0}, oldOwner);
+  const before = await pool.query('SELECT bucket,count FROM jingyue.account_limits ORDER BY bucket');
+  for (let i=0; i<110; i++) await unlimited.allowModel(alice.user);
+  const after = await pool.query('SELECT bucket,count FROM jingyue.account_limits ORDER BY bucket');
+  assert.deepEqual(after.rows, before.rows);
+  // Auth attempt limits are independent from model quotas.
+  for (let i=0; i<10; i++) await unlimited.guardAttempt('login','unlimited-user','unlimited-peer');
+  await assert.rejects(unlimited.guardAttempt('login','unlimited-user','unlimited-peer'), e => e.status === 429);
+});
+test('each daily counter can remain enabled independently', async () => {
+  const calls=[];
+  const userOnly = new AccountStore(pool, {...config, userDailyRequests:5, globalDailyRequests:0}, oldOwner);
+  userOnly.consume = async (...args) => {calls.push(args);};
+  await userOnly.allowModel(alice.user);
+  assert.deepEqual(calls, [[`model-user:${alice.user.id}`,5,86400]]);
+  calls.length=0;
+  const globalOnly = new AccountStore(pool, {...config, userDailyRequests:0, globalDailyRequests:10}, oldOwner);
+  globalOnly.consume = async (...args) => {calls.push(args);};
+  await globalOnly.allowModel(alice.user);
+  assert.deepEqual(calls, [['model-global',10,86400]]);
+});
 test('logout and expired/disabled sessions cannot access data', async () => {
   const extra = await store.login({ username: 'bob', password }, 'expiry');
   const out = await request('/api/auth/logout', extra, {});
